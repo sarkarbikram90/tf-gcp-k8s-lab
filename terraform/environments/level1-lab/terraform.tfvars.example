@@ -1,0 +1,11 @@
+# Copy this file to terraform.tfvars and fill in your values
+project_id                 = "your-gcp-project-id"
+region                     = "asia-south2"
+zone                       = "asia-south2-a"
+cluster_name               = "k8s-lab"
+network_cidr               = "10.10.0.0/24"
+control_plane_machine_type = "e2-standard-2"
+worker_machine_type        = "e2-medium"
+
+# Keep false for zero public exposure (uses Cloud NAT and IAP SSH)
+assign_public_ip           = false

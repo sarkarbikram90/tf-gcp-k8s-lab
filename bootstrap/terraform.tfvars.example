@@ -1,0 +1,8 @@
+# Copy this file to terraform.tfvars and fill in your values
+project_id        = "your-gcp-project-id"
+region            = "asia-south2"
+state_bucket_name = "your-unique-tf-state-bucket-name"
+
+# Set to your GitHub repository to enable keyless Workload Identity Federation in CI/CD
+enable_wif        = true
+github_repository = "your-github-username/tf-gcp-k8s-lab"

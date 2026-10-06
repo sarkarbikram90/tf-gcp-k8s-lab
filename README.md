@@ -1,2 +1,208 @@
-# tf-gcp-k8s-lab
-tf-gcp-k8s-lab
+# Self-Managed Kubernetes Reference Platform on GCP (`tf-gcp-k8s-lab`)
+
+[![Terraform](https://img.shields.io/badge/Terraform-1.6%2B-623CE4.svg?logo=terraform)](https://www.terraform.io/)
+[![Google Cloud](https://img.shields.io/badge/Google_Cloud-GCP-4285F4.svg?logo=google-cloud)](https://cloud.google.com/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.31-326CE5.svg?logo=kubernetes)](https://kubernetes.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+An open-source, production-oriented reference architecture and learning lab for bootstrapping, securing, operating, and observing self-managed Kubernetes clusters on Google Cloud Platform using **Terraform**, **kubeadm**, and **containerd**.
+
+Designed for **CKA/CKS candidates**, **Site Reliability Engineers (SREs)**, and **Platform Engineers** seeking hands-on mastery over Kubernetes internals, cloud networking, and zero-leak security practices.
+
+---
+
+## Architecture: Progressive 4-Level Roadmap
+
+Instead of isolated tutorials, this repository presents a progressive evolution sharing unified Terraform modules and operational standards:
+
+```
+                                ONE REPOSITORY
+                                      │
+         ┌────────────────────────────┼────────────────────────────┐
+         ▼                            ▼                            ▼
+    Level 1: CKA Lab             Level 2: HA Cluster          Level 3 & 4: Production
+ • 1 CP + 2 Workers           • 3 CP + 3 Workers           • Zero public IPs + IAP + OS Login
+ • Single Subnet + NAT        • Stacked etcd quorum        • WIF CI/CD + GCS Remote State
+ • Pure kubeadm lifecycle     • Internal LB (:6443)        • etcd Backup & Restore to GCS
+ • CNI & CoreDNS validation   • Multi-master joins         • Prometheus / Grafana / Runbooks
+```
+
+- **[Level 1: CKA Lab](docs/architecture/level-1-lab.md)**: Foundational 3-node cluster (1 CP, 2 Workers) with private networking and manual/scripted kubeadm bootstrap.
+- **[Level 2: High Availability](docs/architecture/level-2-ha.md)**: 3 Control Planes (stacked etcd quorum), 3 Workers, and an Internal TCP Load Balancer.
+- **[Level 3: Security Hardening](docs/architecture/level-3-hardening.md)**: Pure private topology, IAP TCP forwarding, OS Login, strict firewalls, and least-privilege IAM.
+- **[Level 4: Production Operations](docs/architecture/level-4-production.md)**: Keyless GitHub Actions CI/CD via Workload Identity Federation (WIF), automated etcd backups to GCS, rolling upgrades, and full-stack observability.
+
+---
+
+## Security Invariants (Zero-Leak Contract)
+
+This repository strictly adheres to production-grade security invariants suitable for public open-source code and enterprise clients:
+
+| Security Invariant | How It Is Enforced |
+| :--- | :--- |
+| **No Service Account JSON Keys** | Local developers use `gcloud auth application-default login` (ADC); CI/CD uses **Workload Identity Federation (WIF)**. |
+| **No Static SSH Keys** | All SSH traffic routes through **Google Cloud Identity-Aware Proxy (IAP)** and **OS Login** authenticated by Google IAM. |
+| **No Public IPs on Nodes** | VMs have only private internal RFC1918 IPs. Egress (container images, packages) is brokered via **Cloud NAT**. |
+| **No Secrets in Terraform** | Kubeadm bootstrap tokens and certificates are generated dynamically at runtime, never stored in Terraform code, state, or metadata. |
+| **Encrypted Remote State** | State is isolated in a versioned, IAM-restricted GCS bucket configured in the dedicated `bootstrap/` layer. |
+
+---
+
+## Repository Structure
+
+```text
+tf-gcp-k8s-lab/
+├── bootstrap/                          # Step 0: GCS state bucket, IAM deployer, WIF pool
+│   ├── main.tf
+│   ├── variables.tf
+│   ├── outputs.tf
+│   └── terraform.tfvars.example
+├── terraform/
+│   ├── modules/
+│   │   ├── network/                    # VPC and custom subnetwork
+│   │   ├── nat/                        # Cloud Router and Cloud NAT gateway
+│   │   ├── firewall/                   # Internal cluster communication & IAP SSH ingress
+│   │   ├── compute/                    # Control plane and worker VM instances
+│   │   └── iam/                        # Least-privilege node runtime service accounts
+│   └── environments/
+│       └── level1-lab/                 # 1 Control Plane + 2 Workers environment
+│           ├── main.tf
+│           ├── variables.tf
+│           ├── outputs.tf
+│           └── terraform.tfvars.example
+├── kubeadm/
+│   ├── configs/                        # Kubeadm ClusterConfiguration manifests
+│   └── scripts/
+│       ├── 01-install-prereqs.sh       # containerd, sysctl, and kubeadm packages
+│       ├── 02-init-control-plane.sh    # kubeadm init, kubectl setup, Flannel CNI
+│       └── 03-join-worker.sh           # Worker join helper script
+├── docs/
+│   └── architecture/                   # Architectural specifications for Levels 1–4
+└── README.md
+```
+
+---
+
+## Quickstart: Deploying Level 1 Lab
+
+### Prerequisites
+1. [Google Cloud SDK (`gcloud`)](https://cloud.google.com/sdk/docs/install) installed and authenticated.
+2. [Terraform (>= 1.6.0)](https://developer.hashicorp.com/terraform/downloads) installed.
+3. An active GCP project with billing enabled.
+
+---
+
+### Step 0: Provision Remote State & WIF (`bootstrap/`)
+
+Authenticate locally using Application Default Credentials (ADC):
+
+```bash
+gcloud auth login
+gcloud auth application-default login
+gcloud config set project YOUR_PROJECT_ID
+```
+
+Run the bootstrap module:
+
+```bash
+cd bootstrap
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars: set project_id and state_bucket_name
+
+terraform init
+terraform apply
+```
+
+Note the output `state_bucket_name` for use in environment backends.
+
+---
+
+### Step 1: Provision Level 1 Infrastructure
+
+Navigate to the `level1-lab` environment:
+
+```bash
+cd ../terraform/environments/level1-lab
+
+# Configure remote backend
+cp backend.hcl.example backend.hcl
+# Edit backend.hcl with the state_bucket_name from Step 0
+
+# Configure variables
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars: set project_id, region, and zone
+
+# Deploy infrastructure
+terraform init -backend-config=backend.hcl
+terraform plan
+terraform apply
+```
+
+Terraform will create the VPC, subnetwork, Cloud NAT, firewall rules, and the 3 private VMs:
+- `k8s-lab-control-plane` (`e2-standard-2`)
+- `k8s-lab-worker-01` (`e2-medium`)
+- `k8s-lab-worker-02` (`e2-medium`)
+
+---
+
+### Step 2: Bootstrap Kubernetes with kubeadm
+
+#### 1. SSH into the Nodes via IAP Tunneling
+Open terminal windows for each node:
+
+```bash
+# Terminal 1: Control Plane
+gcloud compute ssh k8s-lab-control-plane --zone=YOUR_ZONE --tunnel-through-iap
+
+# Terminal 2: Worker 1
+gcloud compute ssh k8s-lab-worker-01 --zone=YOUR_ZONE --tunnel-through-iap
+
+# Terminal 3: Worker 2
+gcloud compute ssh k8s-lab-worker-02 --zone=YOUR_ZONE --tunnel-through-iap
+```
+
+#### 2. Install Prerequisites on ALL 3 Nodes
+On each VM, run:
+```bash
+curl -fsSL https://raw.githubusercontent.com/sarkarbikram90/tf-gcp-k8s-lab/main/kubeadm/scripts/01-install-prereqs.sh | bash
+# Or clone/copy the script directly and run:
+chmod +x 01-install-prereqs.sh && ./01-install-prereqs.sh
+```
+
+#### 3. Initialize Control Plane
+On `k8s-lab-control-plane`:
+```bash
+chmod +x 02-init-control-plane.sh
+./02-init-control-plane.sh
+```
+This runs `kubeadm init`, configures `$HOME/.kube/config`, applies the Flannel CNI manifest, and saves the worker join command to `$HOME/join-worker.sh`.
+
+#### 4. Join Worker Nodes
+Run the join command printed by step 3 on both `k8s-lab-worker-01` and `k8s-lab-worker-02`:
+```bash
+sudo kubeadm join 10.10.0.X:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash>
+```
+
+#### 5. Verify Cluster Status
+On the Control Plane node:
+```bash
+kubectl get nodes -o wide
+kubectl get pods -A
+```
+All 3 nodes should report `Ready`, and CoreDNS pods should reach `Running`.
+
+---
+
+### Step 3: Teardown (Avoid Billing)
+
+When your lab session is complete, destroy the resources with a single command:
+
+```bash
+cd terraform/environments/level1-lab
+terraform destroy
+```
+
+---
+
+## License
+MIT License. See [LICENSE](LICENSE) for details.
