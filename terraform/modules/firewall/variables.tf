@@ -13,3 +13,21 @@ variable "node_tag" {
   type        = string
   default     = "k8s-node"
 }
+
+variable "control_plane_tag" {
+  description = "Network tag applied to control plane nodes"
+  type        = string
+  default     = "k8s-control-plane"
+}
+
+variable "worker_tag" {
+  description = "Network tag applied to worker nodes"
+  type        = string
+  default     = "k8s-worker"
+}
+
+variable "strict_mode" {
+  description = "If true, enforces granular port-level rules (etcd isolated to CPs, kubelet from CPs only, CNI overlay restricted) instead of wide subnet ingress"
+  type        = bool
+  default     = false
+}

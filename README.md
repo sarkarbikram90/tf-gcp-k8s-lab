@@ -61,21 +61,34 @@ tf-gcp-k8s-lab/
 │   ├── modules/
 │   │   ├── network/                    # VPC and custom subnetwork
 │   │   ├── nat/                        # Cloud Router and Cloud NAT gateway
-│   │   ├── firewall/                   # Internal cluster communication & IAP SSH ingress
-│   │   ├── compute/                    # Control plane and worker VM instances
+│   │   ├── firewall/                   # Fine-grained internal & IAP SSH firewall rules
+│   │   ├── compute/                    # Private control plane and worker VM instances
 │   │   ├── load-balancer/              # Regional Internal TCP Load Balancer for API server
-│   │   └── iam/                        # Least-privilege node runtime service accounts
+│   │   ├── iam/                        # Least-privilege node runtime service accounts
+│   │   ├── kms/                        # Cloud KMS KeyRing & CryptoKey for secrets encryption
+│   │   └── secret-manager/             # Google Secret Manager for external secrets
 │   └── environments/
 │       ├── level1-lab/                 # Level 1: 1 Control Plane + 2 Workers
 │       │   ├── main.tf
 │       │   ├── variables.tf
 │       │   ├── outputs.tf
 │       │   └── terraform.tfvars.example
-│       └── level2-ha/                  # Level 2: 3 Control Planes + 3 Workers + Internal LB
+│       ├── level2-ha/                  # Level 2: 3 Control Planes + 3 Workers + Internal LB
+│       │   ├── main.tf
+│       │   ├── variables.tf
+│       │   ├── outputs.tf
+│       │   └── terraform.tfvars.example
+│       └── level3-hardened/            # Level 3: Strict Zero-Trust, KMS & Secret Manager
 │           ├── main.tf
 │           ├── variables.tf
 │           ├── outputs.tf
 │           └── terraform.tfvars.example
+├── kubernetes/
+│   └── security/                       # Hardening manifests
+│       ├── encryption-config.yaml      # etcd Secrets Encryption at Rest configuration
+│       ├── audit-policy.yaml           # API Server audit logging policy
+│       ├── network-policies/           # Default-deny and DNS egress NetworkPolicies
+│       └── pod-security-standards/     # Restricted PSS namespace manifest
 ├── kubeadm/
 │   ├── configs/                        # Kubeadm ClusterConfiguration manifests
 │   │   └── ha-cluster-config.yaml
@@ -246,10 +259,49 @@ Note the `api_endpoint` output (e.g. `10.10.0.100:6443`).
 
 ---
 
+## Quickstart: Deploying Level 3 (Security Hardening)
+
+Level 3 applies enterprise zero-trust controls: strict port-level network isolation, Cloud KMS secrets encryption at rest, Google Secret Manager integration, API server audit policies, and Pod Security Standards.
+
+### 1. Provision Hardened Infrastructure
+
+```bash
+cd terraform/environments/level3-hardened
+
+# Configure remote backend
+cp backend.hcl.example backend.hcl
+
+# Configure variables
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with project_id and region/zones
+
+# Deploy
+terraform init -backend-config=backend.hcl
+terraform plan
+terraform apply
+```
+
+### 2. Configure In-Cluster Security Controls
+
+1. **etcd Secrets Encryption at Rest**:
+   Copy [`kubernetes/security/encryption-config.yaml`](kubernetes/security/encryption-config.yaml) to `/etc/kubernetes/enc/encryption-config.yaml` on all control plane nodes before running `kubeadm init`.
+2. **API Server Audit Logging**:
+   Copy [`kubernetes/security/audit-policy.yaml`](kubernetes/security/audit-policy.yaml) to `/etc/kubernetes/audit/audit-policy.yaml` on control plane nodes.
+3. **Default-Deny Network Policies**:
+   ```bash
+   kubectl apply -f kubernetes/security/network-policies/
+   ```
+4. **Restricted Pod Security Standards (PSS)**:
+   ```bash
+   kubectl apply -f kubernetes/security/pod-security-standards/
+   ```
+
+---
+
 ### Teardown (Avoid Billing)
 
 ```bash
-cd terraform/environments/level2-ha
+cd terraform/environments/level3-hardened
 terraform destroy
 ```
 
@@ -257,4 +309,5 @@ terraform destroy
 
 ## License
 MIT License. See [LICENSE](LICENSE) for details.
+
 

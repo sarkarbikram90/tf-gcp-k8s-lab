@@ -1,0 +1,3 @@
+# Copy this file to backend.hcl and populate with your bootstrap state bucket
+bucket = "your-unique-tf-state-bucket-name"
+prefix = "terraform/state/level3-hardened"

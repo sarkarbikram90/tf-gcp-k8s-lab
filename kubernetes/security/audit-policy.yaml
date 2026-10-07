@@ -1,0 +1,49 @@
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages:
+  - "RequestReceived"
+rules:
+  # The following requests are high-volume and low-risk, do not log
+  - level: None
+    users: ["system:kube-proxy"]
+    verbs: ["watch"]
+    resources:
+      - group: ""
+        resources: ["endpoints", "services"]
+
+  - level: None
+    users: ["system:nodes"]
+    verbs: ["get"]
+    resources:
+      - group: ""
+        resources: ["nodes"]
+
+  - level: None
+    nonResourceURLs:
+      - "/healthz*"
+      - "/version"
+      - "/livez*"
+      - "/readyz*"
+
+  # Log secret and configmap changes at Metadata level (avoid logging secret plaintext in logs!)
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: ["secrets", "configmaps"]
+
+  # Log authentication and RBAC changes at RequestResponse level
+  - level: RequestResponse
+    resources:
+      - group: "rbac.authorization.k8s.io"
+        resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+
+  # Log pod exec and portforward requests at Request level
+  - level: Request
+    resources:
+      - group: ""
+        resources: ["pods/exec", "pods/portforward"]
+
+  # Default rule for all other requests: log metadata
+  - level: Metadata
+    omitStages:
+      - "RequestReceived"
