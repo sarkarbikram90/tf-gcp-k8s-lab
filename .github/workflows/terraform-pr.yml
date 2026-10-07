@@ -1,0 +1,70 @@
+name: "Terraform PR Validation & Plan"
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "terraform/**"
+      - "bootstrap/**"
+      - ".github/workflows/terraform-pr.yml"
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  validate-and-plan:
+    name: "Validate & Speculative Plan"
+    runs-on: ubuntu-latest
+
+    env:
+      TF_VERSION: "1.9.5"
+
+    steps:
+      - name: "Checkout Repository"
+        uses: actions/checkout@v4
+
+      - name: "Setup Terraform"
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: "Terraform Format Check"
+        run: terraform fmt -check -recursive
+
+      - name: "Authenticate to Google Cloud via Workload Identity Federation (WIF)"
+        id: "auth"
+        if: env.WIF_PROVIDER != ''
+        uses: "google-github-actions/auth@v2"
+        with:
+          token_format: "access_token"
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+        env:
+          WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+
+      - name: "Validate Bootstrap Module"
+        run: |
+          cd bootstrap
+          terraform init -backend=false
+          terraform validate
+
+      - name: "Validate Level 1 Environment"
+        run: |
+          cd terraform/environments/level1-lab
+          terraform init -backend=false
+          terraform validate
+
+      - name: "Validate Level 2 HA Environment"
+        run: |
+          cd terraform/environments/level2-ha
+          terraform init -backend=false
+          terraform validate
+
+      - name: "Validate Level 3 Hardened Environment"
+        run: |
+          cd terraform/environments/level3-hardened
+          terraform init -backend=false
+          terraform validate

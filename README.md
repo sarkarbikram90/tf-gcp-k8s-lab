@@ -298,6 +298,50 @@ terraform apply
 
 ---
 
+---
+
+## Quickstart: Level 4 (Production Operations & Observability)
+
+Level 4 operationalizes the cluster with automated disaster recovery, zero-downtime rolling node upgrades, full-stack observability, and hands-on SRE failure-injection labs.
+
+### 1. Automated etcd Disaster Recovery
+Run the automated backup script to create an etcd snapshot with SHA256 verification and upload to Google Cloud Storage:
+
+```bash
+# Automated snapshot to GCS
+sudo ./scripts/disaster-recovery/etcd-backup.sh gs://YOUR_BACKUP_BUCKET
+
+# Disaster recovery restore (if disaster strikes)
+sudo ./scripts/disaster-recovery/etcd-restore.sh /var/backups/etcd/etcd-snapshot-YYYYMMDD_HHMMSS.db
+```
+See the complete [etcd Backup & Restore Runbook](docs/operations/etcd-backup-restore.md).
+
+### 2. Rolling Node Upgrades
+Perform sequential minor version upgrades (`1.31` → `1.32`) with automatic draining and package management:
+
+```bash
+sudo ./scripts/operations/rolling-upgrade.sh 1.31.1-1.1 control-plane
+```
+See the complete [Kubernetes Rolling Upgrade Runbook](docs/operations/cluster-upgrades.md).
+
+### 3. Deploy Observability Stack
+Deploy Prometheus alerts and node metrics collection:
+
+```bash
+kubectl apply -f kubernetes/observability/01-namespace.yaml
+kubectl apply -f kubernetes/observability/02-prometheus-alerts.yaml
+kubectl apply -f kubernetes/observability/03-node-exporter-daemonset.yaml
+```
+
+### 4. Hands-on SRE Troubleshooting Labs
+Practice diagnosing and solving real-world Kubernetes failure modes:
+- **[Lab 01: Broken CNI & Network Diagnostics](docs/labs/lab-01-broken-cni.md)**: Troubleshoot uninitialized network plugins and stuck CoreDNS pods.
+- **[Lab 02: etcd Quorum Loss & Recovery](docs/labs/lab-02-etcd-quorum-loss.md)**: Recover write availability after multi-master partitioned consensus failure.
+- **[Lab 03: Certificate Expiration & PKI Renewal](docs/labs/lab-03-kubelet-cert-expiry.md)**: Renew expired control plane and Kubelet certificates via `kubeadm certs renew`.
+- **[Lab 04: Node DiskPressure & Storage Reclamation](docs/labs/lab-04-node-pressure-disk-full.md)**: Diagnose root volume pressure and prune containerd image caches.
+
+---
+
 ### Teardown (Avoid Billing)
 
 ```bash
@@ -309,5 +353,6 @@ terraform destroy
 
 ## License
 MIT License. See [LICENSE](LICENSE) for details.
+
 
 

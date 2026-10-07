@@ -1,0 +1,84 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: control-plane-and-node-alerts
+  namespace: monitoring
+  labels:
+    role: alert-rules
+spec:
+  groups:
+    - name: control-plane.rules
+      rules:
+        # API Server Latency Alert
+        - alert: KubeAPILatencyHigh
+          expr: histogram_quantile(0.99, sum(rate(apiserver_request_duration_seconds_bucket[5m])) by (le, resource)) > 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High API Server latency on resource {{ $labels.resource }}"
+            description: "99th percentile API latency is above 1 second for the past 5 minutes."
+
+        # etcd Leader Election Alert
+        - alert: EtcdNoLeader
+          expr: etcd_server_has_leader == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "etcd cluster has no leader"
+            description: "etcd quorum has been lost; the cluster cannot process writes."
+
+        # etcd Failed Proposals
+        - alert: EtcdHighNumberOfFailedProposals
+          expr: rate(etcd_server_proposals_failed_total[15m]) > 5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High number of failed etcd proposals"
+            description: "etcd server is experiencing failed consensus proposals."
+
+    - name: node-health.rules
+      rules:
+        # Node NotReady Alert
+        - alert: KubeNodeNotReady
+          expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.node }} is NotReady"
+            description: "Node {{ $labels.node }} has been unready for more than 5 minutes."
+
+        # Node Disk Pressure Alert
+        - alert: KubeNodeDiskPressure
+          expr: kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node {{ $labels.node }} has DiskPressure"
+            description: "Node root disk usage has exceeded high watermark thresholds."
+
+        # Node Memory Pressure Alert
+        - alert: KubeNodeMemoryPressure
+          expr: kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node {{ $labels.node }} has MemoryPressure"
+            description: "Node {{ $labels.node }} is under critical memory pressure."
+
+    - name: workload.rules
+      rules:
+        # Pod CrashLoopBackOff Alert
+        - alert: KubePodCrashLooping
+          expr: rate(kube_pod_container_status_restarts_total[15m]) * 60 > 2
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.pod }} is crash looping"
+            description: "Container in pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is restarting frequently."
