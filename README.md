@@ -63,19 +63,28 @@ tf-gcp-k8s-lab/
 │   │   ├── nat/                        # Cloud Router and Cloud NAT gateway
 │   │   ├── firewall/                   # Internal cluster communication & IAP SSH ingress
 │   │   ├── compute/                    # Control plane and worker VM instances
+│   │   ├── load-balancer/              # Regional Internal TCP Load Balancer for API server
 │   │   └── iam/                        # Least-privilege node runtime service accounts
 │   └── environments/
-│       └── level1-lab/                 # 1 Control Plane + 2 Workers environment
+│       ├── level1-lab/                 # Level 1: 1 Control Plane + 2 Workers
+│       │   ├── main.tf
+│       │   ├── variables.tf
+│       │   ├── outputs.tf
+│       │   └── terraform.tfvars.example
+│       └── level2-ha/                  # Level 2: 3 Control Planes + 3 Workers + Internal LB
 │           ├── main.tf
 │           ├── variables.tf
 │           ├── outputs.tf
 │           └── terraform.tfvars.example
 ├── kubeadm/
 │   ├── configs/                        # Kubeadm ClusterConfiguration manifests
+│   │   └── ha-cluster-config.yaml
 │   └── scripts/
 │       ├── 01-install-prereqs.sh       # containerd, sysctl, and kubeadm packages
-│       ├── 02-init-control-plane.sh    # kubeadm init, kubectl setup, Flannel CNI
-│       └── 03-join-worker.sh           # Worker join helper script
+│       ├── 02-init-control-plane.sh    # Single CP init, kubectl setup, Flannel CNI
+│       ├── 03-join-worker.sh           # Worker join helper script
+│       ├── 04-init-ha-control-plane.sh # HA Primary CP init with --upload-certs
+│       └── 05-join-control-plane.sh    # Secondary CP join helper script
 ├── docs/
 │   └── architecture/                   # Architectural specifications for Levels 1–4
 └── README.md
@@ -193,12 +202,54 @@ All 3 nodes should report `Ready`, and CoreDNS pods should reach `Running`.
 
 ---
 
-### Step 3: Teardown (Avoid Billing)
+---
 
-When your lab session is complete, destroy the resources with a single command:
+## Quickstart: Deploying Level 2 (High Availability)
+
+Level 2 scales the lab into a multi-master High Availability cluster with 3 Control Plane nodes (stacked etcd quorum) and 3 Worker nodes, fronted by an Internal Regional TCP Load Balancer on port 6443.
+
+### 1. Provision HA Infrastructure
 
 ```bash
-cd terraform/environments/level1-lab
+cd terraform/environments/level2-ha
+
+# Configure remote backend
+cp backend.hcl.example backend.hcl
+# Edit backend.hcl with state_bucket_name from bootstrap/
+
+# Configure variables
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with project_id and zones
+
+# Deploy
+terraform init -backend-config=backend.hcl
+terraform plan
+terraform apply
+```
+
+Note the `api_endpoint` output (e.g. `10.10.0.100:6443`).
+
+### 2. Bootstrap HA Cluster
+
+1. **Prerequisites**: Run `kubeadm/scripts/01-install-prereqs.sh` on **all 6 nodes**.
+2. **Primary Control Plane**: On `k8s-ha-cp-01`:
+   ```bash
+   ./04-init-ha-control-plane.sh 10.10.0.100:6443
+   ```
+3. **Secondary Control Planes**: Run the printed control-plane join command on `k8s-ha-cp-02` and `k8s-ha-cp-03`.
+4. **Workers**: Run the printed worker join command on `k8s-ha-worker-01`, `k8s-ha-worker-02`, and `k8s-ha-worker-03`.
+5. **Verify**:
+   ```bash
+   kubectl get nodes -o wide
+   kubectl get pods -n kube-system -l component=etcd
+   ```
+
+---
+
+### Teardown (Avoid Billing)
+
+```bash
+cd terraform/environments/level2-ha
 terraform destroy
 ```
 
@@ -206,3 +257,4 @@ terraform destroy
 
 ## License
 MIT License. See [LICENSE](LICENSE) for details.
+
