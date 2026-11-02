@@ -5,6 +5,18 @@ Diagnose an HA cluster that has lost etcd consensus quorum due to multiple node 
 
 ---
 
+## Automated Simulation & Verification
+
+```bash
+# Inspect / simulate control-plane & etcd health checks
+./scripts/troubleshooting/sre-lab-runner.sh inject 02
+
+# Verify etcd endpoint health and API server responsiveness
+./scripts/troubleshooting/sre-lab-runner.sh verify 02
+```
+
+---
+
 ## Failure Symptoms
 1. `kubectl` commands time out or return:
    ```text

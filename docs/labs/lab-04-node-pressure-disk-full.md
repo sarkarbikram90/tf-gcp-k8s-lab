@@ -5,6 +5,18 @@ Diagnose a node marked with `DiskPressure`, identify the cause of root volume ex
 
 ---
 
+## Automated Simulation & Verification
+
+```bash
+# Simulate ephemeral storage pressure & eviction diagnostics
+./scripts/troubleshooting/sre-lab-runner.sh inject 04
+
+# Verify no nodes report DiskPressure and evicted pods are recovered
+./scripts/troubleshooting/sre-lab-runner.sh verify 04
+```
+
+---
+
 ## Failure Symptoms
 1. `kubectl get nodes` shows node condition:
    ```text

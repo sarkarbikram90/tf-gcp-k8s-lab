@@ -98,8 +98,15 @@ tf-gcp-k8s-lab/
 │       ├── 03-join-worker.sh           # Worker join helper script
 │       ├── 04-init-ha-control-plane.sh # HA Primary CP init with --upload-certs
 │       └── 05-join-control-plane.sh    # Secondary CP join helper script
+├── scripts/
+│   ├── disaster-recovery/              # Automated etcd snapshot backup & restore
+│   ├── operations/                     # Zero-downtime rolling node upgrades
+│   └── troubleshooting/
+│       └── sre-lab-runner.sh           # Automated 10-scenario failure injector & blind drill harness
 ├── docs/
-│   └── architecture/                   # Architectural specifications for Levels 1–4
+│   ├── architecture/                   # Architectural specifications for Levels 1–4
+│   ├── operations/                     # Day-2 operational runbooks
+│   └── labs/                           # 10-scenario SRE troubleshooting labs & post-mortem template
 └── README.md
 ```
 
@@ -333,12 +340,35 @@ kubectl apply -f kubernetes/observability/02-prometheus-alerts.yaml
 kubectl apply -f kubernetes/observability/03-node-exporter-daemonset.yaml
 ```
 
-### 4. Hands-on SRE Troubleshooting Labs
-Practice diagnosing and solving real-world Kubernetes failure modes:
+### 4. Hands-on SRE Troubleshooting Labs (10-Scenario Suite & Automated Fault Injector)
+
+Practice diagnosing and resolving real-world Kubernetes failure modes from first principles using the **[SRE Troubleshooting Playbook](docs/labs/README.md)** and automated fault-injection harness ([`scripts/troubleshooting/sre-lab-runner.sh`](scripts/troubleshooting/sre-lab-runner.sh)):
+
+```bash
+# Inject a specific failure scenario (01 through 10)
+./scripts/troubleshooting/sre-lab-runner.sh inject 08
+
+# Or launch a blind 25-minute on-call drill (random mystery failure)
+./scripts/troubleshooting/sre-lab-runner.sh random
+
+# Verify your root-cause fix and elapsed recovery time
+./scripts/troubleshooting/sre-lab-runner.sh verify current
+
+# Clean up all fault-injection resources
+./scripts/troubleshooting/sre-lab-runner.sh reset all
+```
+
 - **[Lab 01: Broken CNI & Network Diagnostics](docs/labs/lab-01-broken-cni.md)**: Troubleshoot uninitialized network plugins and stuck CoreDNS pods.
-- **[Lab 02: etcd Quorum Loss & Recovery](docs/labs/lab-02-etcd-quorum-loss.md)**: Recover write availability after multi-master partitioned consensus failure.
-- **[Lab 03: Certificate Expiration & PKI Renewal](docs/labs/lab-03-kubelet-cert-expiry.md)**: Renew expired control plane and Kubelet certificates via `kubeadm certs renew`.
-- **[Lab 04: Node DiskPressure & Storage Reclamation](docs/labs/lab-04-node-pressure-disk-full.md)**: Diagnose root volume pressure and prune containerd image caches.
+- **[Lab 02: Control Plane & etcd Quorum Loss](docs/labs/lab-02-etcd-quorum-loss.md)**: Recover write availability after static pod misconfigurations or consensus failure.
+- **[Lab 03: Node `NotReady`, Kubelet & PKI Renewal](docs/labs/lab-03-kubelet-cert-expiry.md)**: Diagnose stopped `kubelet` daemons and renew expired X.509 certificates via `kubeadm certs renew`.
+- **[Lab 04: Node `DiskPressure` & Storage Reclamation](docs/labs/lab-04-node-pressure-disk-full.md)**: Diagnose ephemeral storage eviction, root volume pressure, and prune `containerd` caches.
+- **[Lab 05: `CrashLoopBackOff` & `ImagePullBackOff`](docs/labs/lab-05-crashloop-and-imagepull.md)**: Diagnose invalid image tags, missing `ConfigMap` keys, startup command errors, and broken `livenessProbe` ports.
+- **[Lab 06: `Pending` Pods, Scheduling & Affinity](docs/labs/lab-06-pending-pods-scheduling.md)**: Analyze `kube-scheduler` filter predicates, CPU/memory starvation, `Taints`/`Tolerations`, and `nodeSelector` rules.
+- **[Lab 07: `OOMKilled` (Exit Code 137) & Memory QoS](docs/labs/lab-07-oomkilled-memory-limits.md)**: Trace Linux kernel cgroup OOM kills (`dmesg`) and right-size limits to achieve `Guaranteed` QoS.
+- **[Lab 08: Service Routing, DNS & `NetworkPolicy` Blackholes](docs/labs/lab-08-service-networking-and-dns.md)**: Debug empty `EndpointSlices`, `targetPort` drift, `iptables` rules, and restrictive ingress/DNS egress policies.
+- **[Lab 09: `PVC Pending`, `StorageClass` & Persistence](docs/labs/lab-09-pvc-pending-storage.md)**: Resolve unbound `PersistentVolumeClaims`, storage class mismatches, and verify stateful data survival across Pod deletion.
+- **[Lab 10: Stuck Rollouts, Readiness Probes & `PDB` Deadlocks](docs/labs/lab-10-stuck-rollout-and-probes.md)**: Recover deployments failing with `ProgressDeadlineExceeded` and unblock `PodDisruptionBudget` node drains.
+- **[SRE Incident Report Template](docs/labs/incident-report-template.md)**: Standardized post-mortem template for documenting symptoms, hypotheses, evidence, root cause, and preventive actions.
 
 ---
 

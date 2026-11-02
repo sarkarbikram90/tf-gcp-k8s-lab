@@ -5,6 +5,18 @@ Diagnose and resolve node disconnections caused by expired control plane or kube
 
 ---
 
+## Automated Simulation & Verification
+
+```bash
+# Inspect PKI expiration & simulate node NotReady diagnostics
+./scripts/troubleshooting/sre-lab-runner.sh inject 03
+
+# Verify all nodes are Ready and certificates are valid
+./scripts/troubleshooting/sre-lab-runner.sh verify 03
+```
+
+---
+
 ## Failure Symptoms
 1. Nodes transition to `NotReady`.
 2. Kubelet logs report:

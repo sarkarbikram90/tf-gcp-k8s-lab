@@ -5,6 +5,18 @@ Diagnose and repair a cluster where Pods cannot acquire IP addresses and CoreDNS
 
 ---
 
+## Automated Simulation & Verification
+
+```bash
+# Inject a safe CNI/CoreDNS fault simulation (or run with --node-fault on a test node)
+./scripts/troubleshooting/sre-lab-runner.sh inject 01
+
+# Verify CNI & CoreDNS health after remediation
+./scripts/troubleshooting/sre-lab-runner.sh verify 01
+```
+
+---
+
 ## Failure Symptoms
 1. `kubectl get pods -A` reveals CoreDNS pods stuck in `ContainerCreating` or `CrashLoopBackOff`.
 2. Inspecting the pod with `kubectl describe pod <coredns-pod> -n kube-system` shows:

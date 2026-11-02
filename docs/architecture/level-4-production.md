@@ -17,3 +17,6 @@ Level 4 introduces complete Day-2 operational automation, enterprise CI/CD, disa
    - Centralized container logs streaming to Cloud Logging via Fluent Bit or OpenTelemetry collector.
 4. **Automated Rolling Upgrades**:
    - Blue/green or sequential in-place rolling upgrade procedures (`kubeadm upgrade apply`, node drains, kubelet binary updates).
+5. **SRE Failure-Injection & Troubleshooting Laboratory**:
+   - Automated 10-scenario fault injection and verification harness ([`scripts/troubleshooting/sre-lab-runner.sh`](../../scripts/troubleshooting/sre-lab-runner.sh)) covering CNI/CoreDNS, etcd quorum, PKI expiry, `DiskPressure`, `CrashLoopBackOff`/`ImagePullBackOff`, `Pending` scheduling predicates, `OOMKilled` cgroups, Service/`NetworkPolicy` blackholes, `PVC` binding, and stuck rollouts/`PDB` deadlocks.
+   - Supports blind 25-minute random on-call drills (`random`) and structured post-mortems ([`docs/labs/incident-report-template.md`](../labs/incident-report-template.md)).
