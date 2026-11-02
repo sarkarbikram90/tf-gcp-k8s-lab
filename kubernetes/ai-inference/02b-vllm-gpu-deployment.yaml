@@ -1,0 +1,89 @@
+# ==============================================================================
+# Stage B: Production NVIDIA GPU vLLM Model-Serving Deployment
+# Targets worker nodes equipped with NVIDIA L4 / T4 / A100 GPUs and the
+# NVIDIA GPU Operator (nvidia.com/gpu resource plugin).
+# ==============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-gpu-engine
+  namespace: ai-inference
+  labels:
+    app: vllm-engine
+    tier: gpu-model-serving
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-engine
+      accelerator: nvidia-gpu
+  template:
+    metadata:
+      labels:
+        app: vllm-engine
+        accelerator: nvidia-gpu
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: vllm-engine-sa
+      nodeSelector:
+        accelerator: nvidia-l4
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: vllm-openai
+          image: vllm/vllm-openai:v0.6.4
+          args:
+            - "--model=Qwen/Qwen2.5-1.5B-Instruct"
+            - "--port=8000"
+            - "--gpu-memory-utilization=0.90"
+            - "--max-model-len=4096"
+            - "--enable-chunked-prefill"
+            - "--disable-log-requests"
+          ports:
+            - name: http-openai
+              containerPort: 8000
+          # Large LLM weight downloads and CUDA graph capture require a generous startupProbe
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            failureThreshold: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "2"
+              memory: 8Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "4"
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /root/.cache/huggingface
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: hf-cache
+          persistentVolumeClaim:
+            claimName: hf-model-cache-pvc
+        # Shared memory volume required by PyTorch / NCCL tensor operations
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi

@@ -11,26 +11,27 @@ Designed for **CKA/CKS candidates**, **Site Reliability Engineers (SREs)**, and 
 
 ---
 
-## Architecture: Progressive 4-Level Roadmap
+## Architecture: Progressive 5-Level Roadmap
 
-Instead of isolated tutorials, this repository presents a progressive evolution sharing unified Terraform modules and operational standards:
+Instead of isolated tutorials, this repository presents a progressive evolution sharing unified Terraform modules, SRE operational standards, and AI inference infrastructure:
 
 ```
-                                ONE REPOSITORY
-                                      │
-         ┌────────────────────────────┼────────────────────────────┐
-         ▼                            ▼                            ▼
-    Level 1: CKA Lab             Level 2: HA Cluster          Level 3 & 4: Production
- • 1 CP + 2 Workers           • 3 CP + 3 Workers           • Zero public IPs + IAP + OS Login
- • Single Subnet + NAT        • Stacked etcd quorum        • WIF CI/CD + GCS Remote State
- • Pure kubeadm lifecycle     • Internal LB (:6443)        • etcd Backup & Restore to GCS
- • CNI & CoreDNS validation   • Multi-master joins         • Prometheus / Grafana / Runbooks
+                                           ONE REPOSITORY
+                                                 │
+       ┌─────────────────────────┬───────────────┴───────────────┬─────────────────────────┐
+       ▼                         ▼                               ▼                         ▼
+  Level 1: CKA Lab         Level 2: HA Cluster         Level 3 & 4: Production       Level 5: AI Inference
+• 1 CP + 2 Workers       • 3 CP + 3 Workers          • Zero public IPs + IAP       • vLLM OpenAI Engine (CPU/GPU)
+• Single Subnet + NAT    • Stacked etcd quorum       • WIF CI/CD + Remote State    • NGINX Streaming LLM Gateway
+• Pure kubeadm init      • Internal LB (:6443)       • etcd DR + 10 SRE Labs       • TTFT, TPS & $/1M Token Rules
 ```
 
 - **[Level 1: CKA Lab](docs/architecture/level-1-lab.md)**: Foundational 3-node cluster (1 CP, 2 Workers) with private networking and manual/scripted kubeadm bootstrap.
 - **[Level 2: High Availability](docs/architecture/level-2-ha.md)**: 3 Control Planes (stacked etcd quorum), 3 Workers, and an Internal TCP Load Balancer.
 - **[Level 3: Security Hardening](docs/architecture/level-3-hardening.md)**: Pure private topology, IAP TCP forwarding, OS Login, strict firewalls, and least-privilege IAM.
-- **[Level 4: Production Operations](docs/architecture/level-4-production.md)**: Keyless GitHub Actions CI/CD via Workload Identity Federation (WIF), automated etcd backups to GCS, rolling upgrades, and full-stack observability.
+- **[Level 4: Production Operations](docs/architecture/level-4-production.md)**: Keyless GitHub Actions CI/CD via Workload Identity Federation (WIF), automated etcd backups to GCS, rolling upgrades, 10-scenario SRE fault injection, and full-stack observability.
+- **[Level 5: AI Systems & LLM Inference (`vLLM`)](docs/architecture/level-5-ai-inference.md)**: Production-style Kubernetes LLM Inference Platform with CPU/GPU `vLLM` model serving, streaming LLM Gateway, HPA/PDB autoscaling, and Prometheus token economics (`TTFT`, `Tokens/sec`, `$/1M tokens`).
+- **[14-Day Kubernetes Engineering Sprint](docs/sprint/README.md)**: Structured 42-hour first-principles curriculum, [Day 1 Walkthrough](docs/sprint/day-01-walkthrough.md), competency scorecard, and [Engineering Journal Template](docs/sprint/journal-template.md).
 
 ---
 
@@ -84,6 +85,8 @@ tf-gcp-k8s-lab/
 │           ├── outputs.tf
 │           └── terraform.tfvars.example
 ├── kubernetes/
+│   ├── ai-inference/                   # Level 5: vLLM engine (CPU/GPU), LLM Gateway, HPA, Token Economics
+│   ├── observability/                  # Prometheus alerts and node-exporter DaemonSet
 │   └── security/                       # Hardening manifests
 │       ├── encryption-config.yaml      # etcd Secrets Encryption at Rest configuration
 │       ├── audit-policy.yaml           # API Server audit logging policy
@@ -99,14 +102,16 @@ tf-gcp-k8s-lab/
 │       ├── 04-init-ha-control-plane.sh # HA Primary CP init with --upload-certs
 │       └── 05-join-control-plane.sh    # Secondary CP join helper script
 ├── scripts/
+│   ├── ai-inference/                   # vLLM latency, throughput & $/1M token benchmark harness
 │   ├── disaster-recovery/              # Automated etcd snapshot backup & restore
 │   ├── operations/                     # Zero-downtime rolling node upgrades
 │   └── troubleshooting/
 │       └── sre-lab-runner.sh           # Automated 10-scenario failure injector & blind drill harness
 ├── docs/
-│   ├── architecture/                   # Architectural specifications for Levels 1–4
+│   ├── architecture/                   # Architectural specifications for Levels 1–5
 │   ├── operations/                     # Day-2 operational runbooks
-│   └── labs/                           # 10-scenario SRE troubleshooting labs & post-mortem template
+│   ├── labs/                           # 10-scenario SRE troubleshooting labs & post-mortem template
+│   └── sprint/                         # 14-Day Kubernetes Sprint tracker, Day 1 lab & journal template
 └── README.md
 ```
 
@@ -369,6 +374,37 @@ Practice diagnosing and resolving real-world Kubernetes failure modes from first
 - **[Lab 09: `PVC Pending`, `StorageClass` & Persistence](docs/labs/lab-09-pvc-pending-storage.md)**: Resolve unbound `PersistentVolumeClaims`, storage class mismatches, and verify stateful data survival across Pod deletion.
 - **[Lab 10: Stuck Rollouts, Readiness Probes & `PDB` Deadlocks](docs/labs/lab-10-stuck-rollout-and-probes.md)**: Recover deployments failing with `ProgressDeadlineExceeded` and unblock `PodDisruptionBudget` node drains.
 - **[SRE Incident Report Template](docs/labs/incident-report-template.md)**: Standardized post-mortem template for documenting symptoms, hypotheses, evidence, root cause, and preventive actions.
+
+---
+
+## Quickstart: Level 5 (Kubernetes-Based LLM Inference Platform — `vLLM`)
+
+Level 5 deploys an OpenAI-compatible **LLM Inference Platform** on Kubernetes (`ai-inference` namespace) with an NGINX streaming gateway, Prometheus latency/throughput/token-economics recording rules, HPA autoscaling, and a two-stage serving design (**Stage A: CPU-compatible simulator** for zero-GPU-cost learning on standard `e2-medium` nodes; **Stage B: Production NVIDIA L4 GPU `vLLM` engine**).
+
+### 1. Deploy the Inference Stack (CPU-First Mode)
+
+```bash
+kubectl apply -f kubernetes/ai-inference/01-namespace-and-storage.yaml
+kubectl apply -f kubernetes/ai-inference/02-vllm-serving-deployment.yaml
+kubectl apply -f kubernetes/ai-inference/03-llm-gateway.yaml
+kubectl apply -f kubernetes/ai-inference/04-prometheus-inference-rules.yaml
+kubectl apply -f kubernetes/ai-inference/05-hpa-and-pdb.yaml
+
+# Wait for vLLM engine and LLM Gateway replicas to become Ready
+kubectl get pods,svc,hpa,pdb -n ai-inference
+```
+
+*(When running on a GPU-enabled node pool with the NVIDIA GPU Operator installed, apply [`kubernetes/ai-inference/02b-vllm-gpu-deployment.yaml`](kubernetes/ai-inference/02b-vllm-gpu-deployment.yaml) instead.)*
+
+### 2. Run Inference Benchmark & Token Economics Report (`$/1M Tokens`)
+
+Execute the automated benchmark script to send OpenAI `/v1/chat/completions` traffic through the LLM Gateway and compute **P50/P95 Time to First Token (TTFT)**, **Tokens/sec**, **KV-Cache Utilization**, and **Cost per 1 Million Output Tokens**:
+
+```bash
+./scripts/ai-inference/benchmark-inference.sh 20 64 0.75
+```
+
+See the complete [Level 5 AI Inference Architecture Specification](docs/architecture/level-5-ai-inference.md).
 
 ---
 

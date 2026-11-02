@@ -1,0 +1,114 @@
+# ==============================================================================
+# LLM Inference Gateway (NGINX Reverse Proxy with Streaming & Timeout Tuning)
+# Fronts vllm-engine-svc (:8000), disables proxy buffering for token streaming
+# (SSE), and enforces 120s upstream read timeouts for long token generations.
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llm-gateway-config
+  namespace: ai-inference
+data:
+  nginx.conf: |
+    worker_processes auto;
+    events {
+      worker_connections 1024;
+    }
+    http {
+      upstream vllm_backend {
+        server vllm-engine-svc.ai-inference.svc.cluster.local:8000;
+        keepalive 32;
+      }
+      server {
+        listen 8080;
+
+        location = /healthz {
+          access_log off;
+          return 200 '{"gateway":"ok"}\n';
+          add_header Content-Type application/json;
+        }
+
+        location / {
+          proxy_pass http://vllm_backend;
+          proxy_http_version 1.1;
+          proxy_set_header Connection "";
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          # Disable buffering so Server-Sent Events (SSE) token streams flush immediately
+          proxy_buffering off;
+          proxy_read_timeout 120s;
+          proxy_send_timeout 120s;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-gateway
+  namespace: ai-inference
+  labels:
+    app: llm-gateway
+    tier: gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: llm-gateway
+  template:
+    metadata:
+      labels:
+        app: llm-gateway
+        tier: gateway
+    spec:
+      containers:
+        - name: nginx-gateway
+          image: nginx:1.27-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: llm-gateway-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-gateway-svc
+  namespace: ai-inference
+  labels:
+    app: llm-gateway
+spec:
+  type: ClusterIP
+  selector:
+    app: llm-gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

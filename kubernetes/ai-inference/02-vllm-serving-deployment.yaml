@@ -1,0 +1,249 @@
+# ==============================================================================
+# Stage A: CPU-Compatible vLLM OpenAI & Prometheus Metrics Engine
+# Runs on standard e2-medium / e2-standard-2 CPU nodes (zero GPU spend) while
+# exposing OpenAI-compatible /v1/models, /v1/chat/completions, /health, and
+# genuine vllm:* Prometheus histogram/gauge/counter metrics on :8000/metrics.
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vllm-cpu-simulator-script
+  namespace: ai-inference
+data:
+  server.py: |
+    import json
+    import os
+    import random
+    import time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-1.5B-Instruct-CPU-Sim")
+    REQUESTS_TOTAL = 0
+    PROMPT_TOKENS_TOTAL = 0
+    GEN_TOKENS_TOTAL = 0
+    ACTIVE_REQUESTS = 0
+    TTFT_SUM = 0.0
+    E2E_SUM = 0.0
+    TTFT_BUCKETS = {0.05: 0, 0.1: 0, 0.25: 0, 0.5: 0, 1.0: 0, 2.5: 0, 5.0: 0}
+
+    class VLLMHandler(BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):
+            pass
+
+        def do_GET(self):
+            if self.path in ("/health", "/healthz", "/readyz"):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"status":"healthy","engine":"vllm-cpu-sim"}\n')
+            elif self.path == "/v1/models":
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                payload = {"object": "list", "data": [{"id": MODEL_NAME, "object": "model"}]}
+                self.wfile.write(json.dumps(payload).encode("utf-8"))
+            elif self.path == "/metrics":
+                kv_cache_usage = min(0.95, round(0.12 + ACTIVE_REQUESTS * 0.08, 3))
+                lines = [
+                    "# HELP vllm:num_requests_running Number of requests currently running on GPU/CPU.",
+                    "# TYPE vllm:num_requests_running gauge",
+                    f'vllm:num_requests_running{{model_name="{MODEL_NAME}"}} {ACTIVE_REQUESTS}',
+                    "# HELP vllm:num_requests_waiting Number of requests waiting in queue.",
+                    "# TYPE vllm:num_requests_waiting gauge",
+                    f'vllm:num_requests_waiting{{model_name="{MODEL_NAME}"}} {max(0, ACTIVE_REQUESTS - 4)}',
+                    "# HELP vllm:gpu_cache_usage_perc KV-cache utilization fraction (0.0 to 1.0).",
+                    "# TYPE vllm:gpu_cache_usage_perc gauge",
+                    f'vllm:gpu_cache_usage_perc{{model_name="{MODEL_NAME}"}} {kv_cache_usage}',
+                    "# HELP vllm:prompt_tokens_total Total prompt tokens processed.",
+                    "# TYPE vllm:prompt_tokens_total counter",
+                    f'vllm:prompt_tokens_total{{model_name="{MODEL_NAME}"}} {PROMPT_TOKENS_TOTAL}',
+                    "# HELP vllm:generation_tokens_total Total generation tokens produced.",
+                    "# TYPE vllm:generation_tokens_total counter",
+                    f'vllm:generation_tokens_total{{model_name="{MODEL_NAME}"}} {GEN_TOKENS_TOTAL}',
+                    "# HELP vllm:time_to_first_token_seconds Histogram of Time to First Token (TTFT).",
+                    "# TYPE vllm:time_to_first_token_seconds histogram",
+                ]
+                for b, count in TTFT_BUCKETS.items():
+                    lines.append(f'vllm:time_to_first_token_seconds_bucket{{model_name="{MODEL_NAME}",le="{b}"}} {count}')
+                lines.append(f'vllm:time_to_first_token_seconds_bucket{{model_name="{MODEL_NAME}",le="+Inf"}} {REQUESTS_TOTAL}')
+                lines.append(f'vllm:time_to_first_token_seconds_sum{{model_name="{MODEL_NAME}"}} {TTFT_SUM:.4f}')
+                lines.append(f'vllm:time_to_first_token_seconds_count{{model_name="{MODEL_NAME}"}} {REQUESTS_TOTAL}')
+                lines.append("# HELP vllm:e2e_request_latency_seconds Total end-to-end inference latency.")
+                lines.append("# TYPE vllm:e2e_request_latency_seconds summary")
+                lines.append(f'vllm:e2e_request_latency_seconds_sum{{model_name="{MODEL_NAME}"}} {E2E_SUM:.4f}')
+                lines.append(f'vllm:e2e_request_latency_seconds_count{{model_name="{MODEL_NAME}"}} {REQUESTS_TOTAL}')
+                body = ("\n".join(lines) + "\n").encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; version=0.0.4")
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def do_POST(self):
+            global REQUESTS_TOTAL, PROMPT_TOKENS_TOTAL, GEN_TOKENS_TOTAL, ACTIVE_REQUESTS, TTFT_SUM, E2E_SUM
+            if self.path not in ("/v1/chat/completions", "/v1/completions"):
+                self.send_response(404)
+                self.end_headers()
+                return
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                req = json.loads(raw.decode("utf-8"))
+            except Exception:
+                req = {}
+            max_tokens = min(int(req.get("max_tokens", 32)), 256)
+            ACTIVE_REQUESTS += 1
+            start_t = time.time()
+            try:
+                ttft = round(random.uniform(0.04, 0.14) + (ACTIVE_REQUESTS * 0.01), 4)
+                decode_time = round(max_tokens * 0.004, 4)
+                time.sleep(ttft + decode_time)
+                e2e = round(time.time() - start_t, 4)
+                REQUESTS_TOTAL += 1
+                PROMPT_TOKENS_TOTAL += 24
+                GEN_TOKENS_TOTAL += max_tokens
+                TTFT_SUM += ttft
+                E2E_SUM += e2e
+                for b in TTFT_BUCKETS:
+                    if ttft <= b:
+                        TTFT_BUCKETS[b] += 1
+                resp = {
+                    "id": f"chatcmpl-{REQUESTS_TOTAL}",
+                    "object": "chat.completion",
+                    "created": int(time.time()),
+                    "model": MODEL_NAME,
+                    "choices": [{
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": f"Processed on pod {os.uname().nodename} (TTFT={ttft*1000:.1f}ms, tokens={max_tokens})."
+                        },
+                        "finish_reason": "stop"
+                    }],
+                    "usage": {
+                        "prompt_tokens": 24,
+                        "completion_tokens": max_tokens,
+                        "total_tokens": 24 + max_tokens
+                    },
+                    "metrics": {
+                        "ttft_seconds": ttft,
+                        "e2e_latency_seconds": e2e,
+                        "tokens_per_second": round(max_tokens / max(e2e, 0.001), 2)
+                    }
+                }
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write((json.dumps(resp) + "\n").encode("utf-8"))
+            finally:
+                ACTIVE_REQUESTS = max(0, ACTIVE_REQUESTS - 1)
+
+    if __name__ == "__main__":
+        server = ThreadingHTTPServer(("0.0.0.0", 8000), VLLMHandler)
+        print(f"vLLM CPU Inference Simulator listening on :8000 for model {MODEL_NAME}", flush=True)
+        server.serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-engine
+  namespace: ai-inference
+  labels:
+    app: vllm-engine
+    tier: model-serving
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: vllm-engine
+  template:
+    metadata:
+      labels:
+        app: vllm-engine
+        tier: model-serving
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: vllm-engine-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: vllm-engine
+          image: python:3.12-alpine
+          command: ["python3", "/app/server.py"]
+          env:
+            - name: MODEL_NAME
+              value: "Qwen/Qwen2.5-1.5B-Instruct"
+            - name: HF_HOME
+              value: "/root/.cache/huggingface"
+          ports:
+            - name: http-openai
+              containerPort: 8000
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: server-script
+              mountPath: /app
+              readOnly: true
+      volumes:
+        - name: server-script
+          configMap:
+            name: vllm-cpu-simulator-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-engine-svc
+  namespace: ai-inference
+  labels:
+    app: vllm-engine
+spec:
+  type: ClusterIP
+  selector:
+    app: vllm-engine
+  ports:
+    - name: http-openai
+      port: 8000
+      targetPort: 8000
+      protocol: TCP

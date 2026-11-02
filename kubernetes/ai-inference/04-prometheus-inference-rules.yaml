@@ -1,0 +1,69 @@
+# ==============================================================================
+# AI Observability & Token Economics Prometheus Recording & Alerting Rules
+# Tracks:
+#   - P95 Time to First Token (TTFT)
+#   - Generation Throughput (Tokens/sec)
+#   - KV Cache Utilization & Queue Waiting Backlog
+#   - Real-Time Cost per 1 Million Tokens ($/1M tokens)
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-vllm-inference-rules
+  namespace: ai-inference
+  labels:
+    app: vllm-engine
+    role: alert-rules
+data:
+  vllm-rules.yml: |
+    groups:
+      - name: vllm.inference.economics.recording
+        interval: 15s
+        rules:
+          # P95 Time to First Token (TTFT) across all vLLM replicas
+          - record: vllm:ttft_p95_seconds
+            expr: |
+              histogram_quantile(0.95, sum(rate(vllm:time_to_first_token_seconds_bucket[5m])) by (le, model_name))
+
+          # Cluster-wide token generation throughput (tokens/sec)
+          - record: vllm:generation_tokens_per_second
+            expr: |
+              sum(rate(vllm:generation_tokens_total[1m])) by (model_name)
+
+          # Estimated Cost per 1 Million Output Tokens (USD)
+          # Assumes baseline hourly node pool rate ($0.75/hr for 1x L4 GPU node = $0.0002083/sec)
+          - record: vllm:cost_per_million_tokens_usd
+            expr: |
+              (0.75 / 3600) / clamp_min(sum(rate(vllm:generation_tokens_total[5m])) by (model_name), 1) * 1000000
+
+      - name: vllm.inference.slo.alerts
+        rules:
+          - alert: VLLMHighTimeToFirstToken
+            expr: vllm:ttft_p95_seconds > 1.5
+            for: 2m
+            labels:
+              severity: warning
+              component: vllm-engine
+            annotations:
+              summary: "High P95 Time to First Token (TTFT > 1.5s)"
+              description: "Model {{ $labels.model_name }} P95 TTFT is {{ $value | humanizeDuration }}. Check prefill batch size or scale out replicas."
+
+          - alert: VLLMKVCacheSaturation
+            expr: avg(vllm:gpu_cache_usage_perc) by (model_name) > 0.85
+            for: 2m
+            labels:
+              severity: critical
+              component: vllm-engine
+            annotations:
+              summary: "vLLM PagedAttention KV Cache Saturation (> 85%)"
+              description: "KV cache usage for {{ $labels.model_name }} exceeded 85%. Risk of request preemption and swap thrashing."
+
+          - alert: VLLMRequestQueueBacklog
+            expr: sum(vllm:num_requests_waiting) by (model_name) > 10
+            for: 1m
+            labels:
+              severity: warning
+              component: vllm-engine
+            annotations:
+              summary: "vLLM Inference Request Queue Backlog (> 10 waiting)"
+              description: "{{ $value }} requests are waiting in the scheduler queue for {{ $labels.model_name }}."
