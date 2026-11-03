@@ -1,0 +1,64 @@
+# ==============================================================================
+# Day 2 Hands-On Lab Manifest: Standalone Pod vs. Controller-Reconciled Deployment
+# ==============================================================================
+# Apply with:
+#   kubectl apply -f kubernetes/sprint-labs/day-02-reconciliation.yaml
+# ==============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: standalone-nginx
+  namespace: default
+  labels:
+    app: standalone-nginx
+    sprint-day: "02"
+    management-mode: unmanaged-pod
+spec:
+  containers:
+    - name: nginx
+      image: nginx:1.27-alpine
+      ports:
+        - name: http
+          containerPort: 80
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reconciled-nginx
+  namespace: default
+  labels:
+    app: reconciled-nginx
+    sprint-day: "02"
+    management-mode: deployment-controller
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: reconciled-nginx
+  template:
+    metadata:
+      labels:
+        app: reconciled-nginx
+        sprint-day: "02"
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

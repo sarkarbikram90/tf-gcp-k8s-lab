@@ -33,6 +33,7 @@ kubectl get deployments -n default -v=8 2>&1 | grep -E "GET|Response Status"
 ```
 
 ### Step 2: Create a Standalone (Unmanaged) Pod vs. a Deployment
+You can apply the pre-built lab manifest directly (`kubectl apply -f kubernetes/sprint-labs/day-02-reconciliation.yaml`) or create them step by step:
 1. Create an unmanaged Pod using declarative YAML:
    ```bash
    cat <<'EOF' | kubectl apply -f -
