@@ -1,0 +1,111 @@
+# 1. Ingress with TLS & WebSocket Upgrade Support for Barnacles Live Stream UI
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: barnacles-ingress
+  namespace: barnacles
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - barnacles.k8s-lab.internal
+      secretName: barnacles-tls-secret
+  rules:
+    - host: barnacles.k8s-lab.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: barnacles-server
+                port:
+                  number: 8080
+---
+# 2. HorizontalPodAutoscaler for barnacles-server StatefulSet
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: barnacles-server-hpa
+  namespace: barnacles
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: barnacles-server
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+# 3. PodDisruptionBudget guaranteeing availability during rolling node upgrades
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: barnacles-server-pdb
+  namespace: barnacles
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: barnacles-server
+      app.kubernetes.io/component: server
+---
+# 4. Zero-Trust NetworkPolicy for barnacles-server & barnacles-agent
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: barnacles-zero-trust-netpol
+  namespace: barnacles
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow agents, peer server nodes, and observability scrapers to reach barnacles
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 9090
+  egress:
+    # Allow DNS resolution to kube-system CoreDNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow agent-to-server ingestion and server-to-server cluster routing
+    - to:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080

@@ -1,0 +1,171 @@
+# Headless Service for StatefulSet peer discovery & consistent-hash clustering
+apiVersion: v1
+kind: Service
+metadata:
+  name: barnacles-server-headless
+  namespace: barnacles
+  labels:
+    app.kubernetes.io/name: barnacles-server
+    app.kubernetes.io/component: server
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: barnacles-server
+    app.kubernetes.io/component: server
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# Standard ClusterIP Service for Agent Ingestion, OTLP (/v1/logs), and Web UI
+apiVersion: v1
+kind: Service
+metadata:
+  name: barnacles-server
+  namespace: barnacles
+  labels:
+    app.kubernetes.io/name: barnacles-server
+    app.kubernetes.io/component: server
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: barnacles-server
+    app.kubernetes.io/component: server
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# StatefulSet with persistent Zstd block storage (/app/data/logs) per replica
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: barnacles-server
+  namespace: barnacles
+  labels:
+    app.kubernetes.io/name: barnacles-server
+    app.kubernetes.io/component: server
+spec:
+  serviceName: barnacles-server-headless
+  replicas: 2
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: barnacles-server
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: barnacles-server
+        app.kubernetes.io/component: server
+    spec:
+      serviceAccountName: barnacles-server-sa
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: barnacles-server
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: barnacles-server
+          image: ghcr.io/sarkarbikram90/barnacles:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /app/barnacles-server
+            - -config
+            - /app/config/server.yaml
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: BARNACLES_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: barnacles-auth-secret
+                  key: BARNACLES_AUTH_TOKEN
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: config-vol
+              mountPath: /app/config
+              readOnly: true
+            - name: data-logs
+              mountPath: /app/data/logs
+      volumes:
+        - name: config-vol
+          configMap:
+            name: barnacles-config
+            items:
+              - key: server.yaml
+                path: server.yaml
+  volumeClaimTemplates:
+    - metadata:
+        name: data-logs
+        labels:
+          app.kubernetes.io/name: barnacles-server
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi

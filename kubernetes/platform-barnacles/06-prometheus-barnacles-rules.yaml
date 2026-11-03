@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-barnacles-rules
+  namespace: barnacles
+  labels:
+    app.kubernetes.io/name: barnacles
+    role: prometheus-rules
+data:
+  barnacles-slos.rules.yaml: |
+    groups:
+      - name: barnacles.platform.recording.rules
+        interval: 15s
+        rules:
+          # Cluster-wide log ingestion throughput (events/sec)
+          - record: barnacles:ingest_events_per_second:rate1m
+            expr: sum(rate(barnacles_ingest_events_total[1m]))
+
+          # Edge agent durable spool backlog (bytes buffered on disk across all nodes)
+          - record: barnacles:agent_spool_bytes:sum
+            expr: sum(barnacles_agent_spool_bytes)
+
+      - name: barnacles.platform.alerts
+        rules:
+          - alert: BarnaclesAgentSpoolBacklogGrowing
+            expr: barnacles_agent_spool_bytes > 104857600
+            for: 5m
+            labels:
+              severity: warning
+              service: barnacles-agent
+            annotations:
+              summary: "Barnacles edge agent disk spool > 100MB on {{ $labels.instance }}"
+              description: "Agent is buffering batches to disk faster than it can drain to barnacles-server. Check server readiness or NetworkPolicy."
+
+          - alert: BarnaclesServerDown
+            expr: up{job=~".*barnacles-server.*"} == 0
+            for: 1m
+            labels:
+              severity: critical
+              service: barnacles-server
+            annotations:
+              summary: "Barnacles central log server replica {{ $labels.instance }} is unreachable"
+              description: "Verify StatefulSet pod status, PVC attachment, and /healthz endpoint."

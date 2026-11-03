@@ -1,0 +1,121 @@
+# DaemonSet deploying barnacles-agent on every Kubernetes node (Control Plane + Workers)
+# Tails /var/log/pods/**/*.log with atomic inode/offset watermarks and durable FIFO disk spooling.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: barnacles-agent
+  namespace: barnacles
+  labels:
+    app.kubernetes.io/name: barnacles-agent
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: barnacles-agent
+      app.kubernetes.io/component: agent
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: barnacles-agent
+        app.kubernetes.io/component: agent
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: barnacles-agent-sa
+      terminationGracePeriodSeconds: 15
+      tolerations:
+        # Run on Control Plane nodes as well so kube-apiserver / etcd / scheduler logs are collected
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: barnacles-agent
+          image: ghcr.io/sarkarbikram90/barnacles:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - /app/barnacles-agent
+            - -config
+            - /app/config/agent.yaml
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: BARNACLES_AGENT_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: BARNACLES_AGENT_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: BARNACLES_SERVER_URL
+              value: "http://barnacles-server.barnacles.svc.cluster.local:8080"
+            - name: BARNACLES_COMPRESSION
+              value: "zstd"
+            - name: BARNACLES_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: barnacles-auth-secret
+                  key: BARNACLES_AUTH_TOKEN
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: metrics
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: config-vol
+              mountPath: /app/config
+              readOnly: true
+            - name: varlogpods
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: varlogcontainers
+              mountPath: /var/log/containers
+              readOnly: true
+            - name: agent-spool
+              mountPath: /app/data/agent-spool
+      volumes:
+        - name: config-vol
+          configMap:
+            name: barnacles-config
+            items:
+              - key: agent.yaml
+                path: agent.yaml
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods
+            type: DirectoryOrCreate
+        - name: varlogcontainers
+          hostPath:
+            path: /var/log/containers
+            type: DirectoryOrCreate
+        - name: agent-spool
+          hostPath:
+            path: /var/lib/barnacles/agent-spool
+            type: DirectoryOrCreate

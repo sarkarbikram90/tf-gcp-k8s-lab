@@ -30,8 +30,9 @@ Instead of isolated tutorials, this repository presents a progressive evolution 
 - **[Level 2: High Availability](docs/architecture/level-2-ha.md)**: 3 Control Planes (stacked etcd quorum), 3 Workers, and an Internal TCP Load Balancer.
 - **[Level 3: Security Hardening](docs/architecture/level-3-hardening.md)**: Pure private topology, IAP TCP forwarding, OS Login, strict firewalls, and least-privilege IAM.
 - **[Level 4: Production Operations](docs/architecture/level-4-production.md)**: Keyless GitHub Actions CI/CD via Workload Identity Federation (WIF), automated etcd backups to GCS, rolling upgrades, 10-scenario SRE fault injection, and full-stack observability.
+- **[Project 2 Platform Workload: `Barnacles` & Argo CD GitOps](docs/architecture/barnacles-platform.md)**: Production Kustomize & Argo CD deployment of [**`Barnacles`**](https://github.com/sarkarbikram90/barnacles) (`StatefulSet` central log server with `10Gi` PVCs + `DaemonSet` edge log collector with Downward API & durable FIFO disk spooling).
 - **[Level 5: AI Systems & LLM Inference (`vLLM`)](docs/architecture/level-5-ai-inference.md)**: Production-style Kubernetes LLM Inference Platform with CPU/GPU `vLLM` model serving, streaming LLM Gateway, HPA/PDB autoscaling, and Prometheus token economics (`TTFT`, `Tokens/sec`, `$/1M tokens`).
-- **[14-Day Kubernetes Engineering Sprint](docs/sprint/README.md)**: Structured 42-hour first-principles curriculum, [Day 1 Walkthrough](docs/sprint/day-01-walkthrough.md), competency scorecard, and [Engineering Journal Template](docs/sprint/journal-template.md).
+- **[14-Day Kubernetes Engineering Sprint](docs/sprint/README.md)** & **[30-Day Networking Deep Dive](docs/networking/30-day-networking-roadmap.md)**: Structured 42-hour first-principles curriculum ([Day 1](docs/sprint/day-01-walkthrough.md), [Day 2](docs/sprint/day-02-walkthrough.md), [Week 1](docs/sprint/days-03-to-07-week1-guide.md), [Week 2 & 90-Day CKA Plan](docs/sprint/days-08-to-14-week2-guide.md)), Linux/CNI packet tracer, and [Engineering Journal Template](docs/sprint/journal-template.md).
 
 ---
 
@@ -86,7 +87,9 @@ tf-gcp-k8s-lab/
 │           └── terraform.tfvars.example
 ├── kubernetes/
 │   ├── ai-inference/                   # Level 5: vLLM engine (CPU/GPU), LLM Gateway, HPA, Token Economics
+│   ├── networking/                     # 30-Day Networking Lab: net-diag DaemonSet, Headless/ClusterIP, Ingress
 │   ├── observability/                  # Prometheus alerts and node-exporter DaemonSet
+│   ├── platform-barnacles/             # Project 2: Barnacles StatefulSet, DaemonSet, Kustomize & Argo CD GitOps
 │   └── security/                       # Hardening manifests
 │       ├── encryption-config.yaml      # etcd Secrets Encryption at Rest configuration
 │       ├── audit-policy.yaml           # API Server audit logging policy
@@ -104,14 +107,16 @@ tf-gcp-k8s-lab/
 ├── scripts/
 │   ├── ai-inference/                   # vLLM latency, throughput & $/1M token benchmark harness
 │   ├── disaster-recovery/              # Automated etcd snapshot backup & restore
+│   ├── networking/                     # End-to-end Linux & Kubernetes packet path tracer
 │   ├── operations/                     # Zero-downtime rolling node upgrades
 │   └── troubleshooting/
 │       └── sre-lab-runner.sh           # Automated 10-scenario failure injector & blind drill harness
 ├── docs/
-│   ├── architecture/                   # Architectural specifications for Levels 1–5
+│   ├── architecture/                   # Architectural specifications for Levels 1–5 & Barnacles platform
+│   ├── networking/                     # 30-Day Kubernetes & Linux Networking Deep-Dive Roadmap
 │   ├── operations/                     # Day-2 operational runbooks
 │   ├── labs/                           # 10-scenario SRE troubleshooting labs & post-mortem template
-│   └── sprint/                         # 14-Day Kubernetes Sprint tracker, Day 1 lab & journal template
+│   └── sprint/                         # 14-Day Kubernetes Sprint walkthroughs (Days 1–14) & 90-Day CKA Plan
 └── README.md
 ```
 
@@ -405,6 +410,22 @@ Execute the automated benchmark script to send OpenAI `/v1/chat/completions` tra
 ```
 
 See the complete [Level 5 AI Inference Architecture Specification](docs/architecture/level-5-ai-inference.md).
+
+---
+
+## Quickstart: Project 2 Integration (`Barnacles` Platform & Argo CD GitOps)
+
+Deploy [**`Barnacles`**](https://github.com/sarkarbikram90/barnacles) (distributed Go log aggregator) as a production platform workload using Kustomize or Argo CD GitOps:
+
+```bash
+# Deploy Barnacles StatefulSet (Server + 10Gi PVCs), DaemonSet (Edge Agent), HPA, PDB, NetworkPolicy & Prometheus rules
+kubectl apply -k kubernetes/platform-barnacles/
+
+# Or register the declarative Argo CD GitOps Application
+kubectl apply -f kubernetes/platform-barnacles/07-argocd-application.yaml
+```
+
+See the complete [`Barnacles` Platform Architecture & 10-Step Demonstration Runbook](docs/architecture/barnacles-platform.md).
 
 ---
 

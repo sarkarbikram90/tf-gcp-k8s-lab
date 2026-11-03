@@ -1,0 +1,171 @@
+# Multi-Pod East-West & North-South Networking Lab
+# Demonstrates:
+# 1. Anti-affinity echo backends scheduled onto separate worker nodes (cross-node VXLAN path)
+# 2. Standard ClusterIP Service vs. Headless Service (clusterIP: None) DNS resolution
+# 3. Ingress resource & NetworkPolicy microsegmentation
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-backend
+  namespace: net-lab
+  labels:
+    app: echo-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: echo-backend
+  template:
+    metadata:
+      labels:
+        app: echo-backend
+        tier: backend
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: echo-backend
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: echo-http
+          image: python:3.12-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          command:
+            - python3
+            - -u
+            - -c
+            - |
+              import json, os
+              from http.server import BaseHTTPRequestHandler, HTTPServer
+
+              class Handler(BaseHTTPRequestHandler):
+                  def do_GET(self):
+                      payload = {
+                          "pod_name": os.environ.get("POD_NAME"),
+                          "pod_ip": os.environ.get("POD_IP"),
+                          "node_name": os.environ.get("NODE_NAME"),
+                          "path": self.path,
+                          "client_address": self.client_address[0],
+                      }
+                      body = (json.dumps(payload) + "\n").encode("utf-8")
+                      self.send_response(200)
+                      self.send_header("Content-Type", "application/json")
+                      self.send_header("Content-Length", str(len(body)))
+                      self.end_headers()
+                      self.wfile.write(body)
+                  def log_message(self, fmt, *args):
+                      return
+
+              HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 25m
+              memory: 48Mi
+            limits:
+              cpu: 100m
+              memory: 96Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+---
+# 1. Standard ClusterIP VIP Service (kube-proxy iptables/IPVS load-balanced)
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-clusterip-svc
+  namespace: net-lab
+spec:
+  type: ClusterIP
+  selector:
+    app: echo-backend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+# 2. Headless Service (clusterIP: None -> CoreDNS returns all individual Pod A records directly)
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-headless-svc
+  namespace: net-lab
+spec:
+  clusterIP: None
+  selector:
+    app: echo-backend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+# 3. North-South Ingress routing specification
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: echo-ingress
+  namespace: net-lab
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: echo.k8s-lab.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: echo-clusterip-svc
+                port:
+                  number: 80
+---
+# 4. East-West NetworkPolicy allowing only net-diag-agent pods to reach echo-backend on :8080
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-diag-to-echo-backend
+  namespace: net-lab
+spec:
+  podSelector:
+    matchLabels:
+      app: echo-backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: net-diag-agent
+      ports:
+        - protocol: TCP
+          port: 8080

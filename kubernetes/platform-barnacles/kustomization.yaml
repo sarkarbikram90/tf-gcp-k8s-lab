@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: barnacles
+
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: barnacles-platform
+      managed-by: kustomize
+
+resources:
+  - 01-namespace-rbac-pss.yaml
+  - 02-configmaps-and-secrets.yaml
+  - 03-server-statefulset.yaml
+  - 04-agent-daemonset.yaml
+  - 05-ingress-hpa-pdb-netpol.yaml
+  - 06-prometheus-barnacles-rules.yaml

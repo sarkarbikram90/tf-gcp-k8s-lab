@@ -33,12 +33,20 @@ Commit **3 hours/day** for 14 consecutive days. Every single day must produce a 
 
 ## 3. 14-Day Sprint Tracker & Daily Curriculum (Nov 2 – Nov 15)
 
+- **Detailed Walkthrough Guides:**
+  - **[Day 1 Walkthrough (Nov 2)](day-01-walkthrough.md)**: Linux Namespaces, Cgroups, `containerd`, `runc`, Static Pods & Control Plane
+  - **[Day 2 Walkthrough (Nov 3)](day-02-walkthrough.md)**: API Server, `etcd` Keyspace Inspection, `ownerReferences` & Reconciliation Loops
+  - **[Week 1 Guide (Days 3–7)](days-03-to-07-week1-guide.md)**: Deployments, Scheduling, CNI/DNS Networking, Ingress/NetworkPolicies & Probes
+  - **[Week 2 Guide (Days 8–14 & 90-Day CKA Plan)](days-08-to-14-week2-guide.md)**: Storage, RBAC, `kubeadm` DR/Upgrades, Blind SRE Drills, Observability & Capstone
+  - **[30-Day Kubernetes & Linux Networking Deep-Dive](../networking/30-day-networking-roadmap.md)**: Linux `netns`/`veth`/bridges, VXLAN, `kube-proxy` `iptables`, `CoreDNS` & 10 Network Drills
+  - **[Project 2 Integration: `Barnacles` Platform & Argo CD GitOps](../architecture/barnacles-platform.md)**: StatefulSet + DaemonSet + Kustomize + Argo CD delivery
+
 ### Week 1: Understand How Kubernetes Works Internally
 
 | Day | Date | Focus Topic | Hands-On Lab & Associated Repo Assets | End-of-Day Verification Question | Status |
 | :--- | :--- | :--- | :--- | :--- | :---: |
 | **Day 1** | Nov 2 | **Linux, Containers & K8s Architecture** | Inspect Linux namespaces (`lsns`), cgroups (`/sys/fs/cgroup`), `containerd` (`crictl`), `kubelet`, and static pods. Guide: **[Day 1 Walkthrough](day-01-walkthrough.md)** | *What happens step-by-step when Kubernetes receives a request to run a container?* | `[ ]` |
-| **Day 2** | Nov 3 | **API Server, `etcd` & Reconciliation** | Create raw Pod vs. Deployment YAML; delete a Pod and watch `deployment-controller` + `replicaset-controller` reconcile via `kubectl get events -w`. | *What is the architectural difference between an unmanaged Pod and a Deployment-managed Pod?* | `[ ]` |
+| **Day 2** | Nov 3 | **API Server, `etcd` & Reconciliation** | Create raw Pod vs. Deployment YAML; inspect `/registry` in `etcd`; watch `replicaset-controller` reconcile. Guide: **[Day 2 Walkthrough](day-02-walkthrough.md)** | *What is the architectural difference between an unmanaged Pod and a Deployment-managed Pod?* | `[ ]` |
 | **Day 3** | Nov 4 | **Pods, ReplicaSets & Deployments** | Scale Nginx `1 → 5`, perform rolling update & rollback; run **[Lab 05 (`CrashLoopBackOff` & `ImagePullBackOff`)](../labs/lab-05-crashloop-and-imagepull.md)**. | *What happens internally in etcd and controllers when you scale a Deployment from 2 to 5 replicas?* | `[ ]` |
 | **Day 4** | Nov 5 | **Scheduling & Resource Management** | Test CPU/Memory requests vs. limits, QoS classes, Taints/Tolerations, Affinity; run **[Lab 06 (`Pending` Pods)](../labs/lab-06-pending-pods-scheduling.md)** & **[Lab 07 (`OOMKilled`)](../labs/lab-07-oomkilled-memory-limits.md)**. | *Why can a Pod remain `Pending` even when every worker node reports `Ready`?* | `[ ]` |
 | **Day 5** | Nov 6 | **Networking Fundamentals** | Trace Pod-to-Pod & Pod-to-Service traffic, CNI (Flannel), `kube-proxy` (`iptables`), `CoreDNS`, `EndpointSlices`; run **[Lab 01 (Broken CNI)](../labs/lab-01-broken-cni.md)**. | *How does a packet reach a Pod when the client only knows the Kubernetes Service name?* | `[ ]` |

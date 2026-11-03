@@ -1,0 +1,32 @@
+# Declarative Argo CD GitOps Application for Barnacles Platform
+# Apply once Argo CD is installed in the 'argocd' namespace:
+#   kubectl apply -f kubernetes/platform-barnacles/07-argocd-application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: barnacles-platform
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/sarkarbikram90/tf-gcp-k8s-lab.git
+    targetRevision: main
+    path: kubernetes/platform-barnacles
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: barnacles
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
