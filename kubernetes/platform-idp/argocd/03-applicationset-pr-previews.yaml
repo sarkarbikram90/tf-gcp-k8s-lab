@@ -1,0 +1,58 @@
+# ==============================================================================
+# Argo CD Pull Request Generator ApplicationSet (Ephemeral Preview Environments)
+# Automatically deploys an ephemeral preview namespace (`preview-pr-<number>`)
+# whenever a developer opens a GitHub Pull Request with the `preview-env` label,
+# and tears it down automatically when the PR is merged or closed.
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: ephemeral-pr-preview-environments
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: k8s-lab-idp
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - pullRequest:
+        github:
+          owner: sarkarbikram90
+          repo: tf-gcp-k8s-lab
+          labels:
+            - preview-env
+        requeueAfterSeconds: 60
+  template:
+    metadata:
+      name: "preview-pr-{{ .number }}"
+      namespace: argocd
+      labels:
+        idp.k8s-lab.internal/environment: preview
+        idp.k8s-lab.internal/pr: "{{ .number }}"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: tenant-workloads
+      source:
+        repoURL: https://github.com/sarkarbikram90/tf-gcp-k8s-lab.git
+        targetRevision: "{{ .head_sha }}"
+        path: kubernetes/apps/order-api
+        kustomize:
+          nameSuffix: "-pr-{{ .number }}"
+          commonLabels:
+            idp.k8s-lab.internal/pr-preview: "pr-{{ .number }}"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "preview-pr-{{ .number }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        managedNamespaceMetadata:
+          labels:
+            idp.k8s-lab.internal/tenant: "true"
+            idp.k8s-lab.internal/ephemeral: "true"
+            pod-security.kubernetes.io/enforce: restricted
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

@@ -1,0 +1,59 @@
+# ==============================================================================
+# Argo CD Git Directory Generator ApplicationSet
+# Automatically discovers every folder in `kubernetes/apps/*` and provisions an
+# isolated `app-<name>` namespace with restricted Pod Security Standards.
+# Developers never need to write an Argo CD Application manifest manually.
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tenant-golden-path-workloads
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: k8s-lab-idp
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/sarkarbikram90/tf-gcp-k8s-lab.git
+        revision: main
+        directories:
+          - path: kubernetes/apps/*
+  template:
+    metadata:
+      name: "app-{{ .path.basename }}"
+      namespace: argocd
+      labels:
+        app.kubernetes.io/managed-by: argocd-applicationset
+        idp.k8s-lab.internal/workload: "{{ .path.basename }}"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: tenant-workloads
+      source:
+        repoURL: https://github.com/sarkarbikram90/tf-gcp-k8s-lab.git
+        targetRevision: main
+        path: "{{ .path.path }}"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "app-{{ .path.basename }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        managedNamespaceMetadata:
+          labels:
+            idp.k8s-lab.internal/tenant: "true"
+            pod-security.kubernetes.io/enforce: restricted
+            pod-security.kubernetes.io/audit: restricted
+            pod-security.kubernetes.io/warn: restricted
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m

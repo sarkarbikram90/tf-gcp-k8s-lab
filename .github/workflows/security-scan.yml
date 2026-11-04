@@ -42,3 +42,20 @@ jobs:
           format: "table"
           exit-code: "0" # Warnings reported without failing non-blocking runs
           severity: "CRITICAL,HIGH"
+
+  golden-path-kustomize-verify:
+    name: "IDP Golden Path & Kustomize Build Check"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout Code"
+        uses: actions/checkout@v4
+
+      - name: "Validate Golden Paths & Tenant Overlays"
+        run: |
+          kubectl kustomize kubernetes/platform-barnacles > /dev/null
+          kubectl kustomize kubernetes/golden-paths/web-service > /dev/null
+          kubectl kustomize kubernetes/golden-paths/ai-agent-service > /dev/null
+          for app_dir in kubernetes/apps/*/; do
+            echo "Validating tenant workload: ${app_dir}"
+            kubectl kustomize "${app_dir}" > /dev/null
+          done

@@ -1,0 +1,53 @@
+# ==============================================================================
+# Kyverno Mutating ClusterPolicy: Developer-Friendly Pod Security Defaults
+# Instead of simply rejecting developer pods that omit restricted Pod Security
+# Standard fields, this policy automatically injects compliant defaults
+# (`seccompProfile: RuntimeDefault`, `runAsNonRoot: true`, `drop: ["ALL"]`,
+# `automountServiceAccountToken: false`, and platform governance labels).
+# ==============================================================================
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: idp-mutate-security-and-labels
+  annotations:
+    policies.kyverno.io/title: Auto-Inject Restricted Pod Security & FinOps Labels
+    policies.kyverno.io/category: Platform Engineering Golden Path
+    policies.kyverno.io/description: >-
+      Lowers developer cognitive load by automatically defaulting Pod and
+      Container securityContext fields required by Kubernetes Restricted Pod
+      Security Standards in tenant namespaces.
+spec:
+  background: false
+  rules:
+    - name: default-pod-security-context
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaceSelector:
+                matchLabels:
+                  idp.k8s-lab.internal/tenant: "true"
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              +(platform.k8s-lab.internal/managed-by): "idp-kyverno"
+              +(platform.k8s-lab.internal/cost-center): "shared-tenant"
+          spec:
+            +(automountServiceAccountToken): false
+            securityContext:
+              +(runAsNonRoot): true
+              +(runAsUser): 65532
+              +(runAsGroup): 65532
+              +(fsGroup): 65532
+              seccompProfile:
+                +(type): RuntimeDefault
+            containers:
+              - (name): "*"
+                securityContext:
+                  +(allowPrivilegeEscalation): false
+                  +(readOnlyRootFilesystem): true
+                  capabilities:
+                    drop:
+                      - ALL

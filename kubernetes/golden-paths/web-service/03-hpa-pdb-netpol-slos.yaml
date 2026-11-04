@@ -1,0 +1,114 @@
+# ==============================================================================
+# Golden Path Base: HPA, PDB, Zero-Trust NetworkPolicy & Golden Signal SLOs
+# Ensures every developer service automatically satisfies Level 3 Security
+# and Level 4 SRE Operational Readiness without manual YAML authoring.
+# ==============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: workload
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: workload
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: workload
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: service
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: workload-zero-trust
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from NGINX Ingress controller, Prometheus scrapers, and same-namespace pods
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Allow CoreDNS lookup
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow OTLP log shipping to Barnacles Central Log Server
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: barnacles
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workload-golden-signal-slos
+  labels:
+    role: prometheus-rules
+data:
+  golden-signals.rules.yaml: |
+    groups:
+      - name: idp.workload.golden.signals
+        interval: 30s
+        rules:
+          - record: idp:http_requests_per_second:rate5m
+            expr: sum by (namespace, pod) (rate(http_requests_total[5m]))
+
+          - record: idp:http_error_ratio:rate5m
+            expr: |
+              sum by (namespace, pod) (rate(http_requests_total{status=~"5.."}[5m]))
+              /
+              clamp_min(sum by (namespace, pod) (rate(http_requests_total[5m])), 1)
+
+          - alert: IDPWorkloadHighErrorRate
+            expr: idp:http_error_ratio:rate5m > 0.05
+            for: 5m
+            labels:
+              severity: critical
+              tier: tenant-workload
+            annotations:
+              summary: "High 5xx error ratio (>5%) in namespace {{ $labels.namespace }}"
+              description: "Pod {{ $labels.pod }} is violating its 99.9% availability SLO. Inspect logs in Barnacles UI."

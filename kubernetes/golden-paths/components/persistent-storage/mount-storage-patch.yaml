@@ -1,0 +1,16 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workload
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          volumeMounts:
+            - name: persistent-data
+              mountPath: /app/data
+      volumes:
+        - name: persistent-data
+          persistentVolumeClaim:
+            claimName: workload-data

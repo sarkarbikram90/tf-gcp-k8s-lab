@@ -1,0 +1,75 @@
+# ==============================================================================
+# Kyverno Validating ClusterPolicy: Production Hygiene & Supply-Chain Guardrails
+# Gives developers immediate, actionable feedback in CI (`kyverno apply`) and at
+# admission time if a workload uses mutable `:latest` tags, pulls from an
+# untrusted container registry, or omits readiness probes.
+# ==============================================================================
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: idp-validate-production-hygiene
+  annotations:
+    policies.kyverno.io/title: Validate Immutable Image Tags, Trusted Registries & Probes
+    policies.kyverno.io/category: Supply Chain & SRE Reliability
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: disallow-mutable-latest-tag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaceSelector:
+                matchLabels:
+                  idp.k8s-lab.internal/tenant: "true"
+      validate:
+        message: >-
+          Mutable ':latest' image tags are not permitted in tenant namespaces.
+          Pin a semantic version tag (e.g., ':v1.2.0') or SHA256 digest.
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest"
+
+    - name: restrict-to-trusted-registries
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaceSelector:
+                matchLabels:
+                  idp.k8s-lab.internal/tenant: "true"
+      validate:
+        message: >-
+          Container images must originate from an approved registry
+          (ghcr.io, gcr.io, *-docker.pkg.dev, or registry.k8s.io).
+        pattern:
+          spec:
+            containers:
+              - image: "ghcr.io/* | gcr.io/* | *-docker.pkg.dev/* | registry.k8s.io/*"
+
+    - name: require-readiness-probe
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+              namespaceSelector:
+                matchLabels:
+                  idp.k8s-lab.internal/tenant: "true"
+      validate:
+        message: >-
+          All tenant Deployments and StatefulSets must define a readinessProbe
+          to ensure zero-downtime rolling upgrades and safe HPA scaling.
+        pattern:
+          spec:
+            template:
+              spec:
+                containers:
+                  - readinessProbe:
+                      =(httpGet):
+                        port: "?*"

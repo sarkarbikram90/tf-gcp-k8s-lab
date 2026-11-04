@@ -1,0 +1,131 @@
+# ==============================================================================
+# Kyverno Generating ClusterPolicy: Automatic Tenant Namespace Guardrails
+# Whenever Argo CD (or an operator) creates a Namespace labeled
+# `idp.k8s-lab.internal/tenant: "true"`, Kyverno automatically generates and
+# continuously synchronizes:
+#   1. Default-Deny Ingress/Egress NetworkPolicy
+#   2. CoreDNS & Barnacles OTLP Egress NetworkPolicy
+#   3. Tenant ResourceQuota (prevents noisy-neighbor cluster starvation)
+#   4. Container LimitRange (safe default CPU/memory requests & limits)
+# ==============================================================================
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: idp-generate-tenant-namespace-guardrails
+  annotations:
+    policies.kyverno.io/title: Auto-Generate Tenant NetworkPolicy, Quota & LimitRange
+    policies.kyverno.io/category: Multi-Tenancy & Zero-Trust
+spec:
+  rules:
+    - name: generate-default-deny-netpol
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              selector:
+                matchLabels:
+                  idp.k8s-lab.internal/tenant: "true"
+      generate:
+        synchronize: true
+        apiVersion: networking.k8s.io/v1
+        kind: NetworkPolicy
+        name: idp-default-deny-all
+        namespace: "{{request.object.metadata.name}}"
+        data:
+          spec:
+            podSelector: {}
+            policyTypes:
+              - Ingress
+              - Egress
+
+    - name: generate-platform-dns-and-logging-egress
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              selector:
+                matchLabels:
+                  idp.k8s-lab.internal/tenant: "true"
+      generate:
+        synchronize: true
+        apiVersion: networking.k8s.io/v1
+        kind: NetworkPolicy
+        name: idp-allow-dns-and-barnacles-otlp
+        namespace: "{{request.object.metadata.name}}"
+        data:
+          spec:
+            podSelector: {}
+            policyTypes:
+              - Egress
+            egress:
+              # Allow CoreDNS resolution in kube-system
+              - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        kubernetes.io/metadata.name: kube-system
+                ports:
+                  - protocol: UDP
+                    port: 53
+                  - protocol: TCP
+                    port: 53
+              # Allow OTLP structured log & telemetry ingestion to Barnacles platform
+              - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        kubernetes.io/metadata.name: barnacles
+                ports:
+                  - protocol: TCP
+                    port: 8080
+
+    - name: generate-tenant-resource-quota
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              selector:
+                matchLabels:
+                  idp.k8s-lab.internal/tenant: "true"
+      generate:
+        synchronize: true
+        apiVersion: v1
+        kind: ResourceQuota
+        name: idp-tenant-compute-quota
+        namespace: "{{request.object.metadata.name}}"
+        data:
+          spec:
+            hard:
+              requests.cpu: "4"
+              requests.memory: 8Gi
+              limits.cpu: "8"
+              limits.memory: 16Gi
+              pods: "25"
+              persistentvolumeclaims: "5"
+
+    - name: generate-tenant-limit-range
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              selector:
+                matchLabels:
+                  idp.k8s-lab.internal/tenant: "true"
+      generate:
+        synchronize: true
+        apiVersion: v1
+        kind: LimitRange
+        name: idp-default-container-limits
+        namespace: "{{request.object.metadata.name}}"
+        data:
+          spec:
+            limits:
+              - type: Container
+                default:
+                  cpu: 500m
+                  memory: 512Mi
+                defaultRequest:
+                  cpu: 100m
+                  memory: 128Mi

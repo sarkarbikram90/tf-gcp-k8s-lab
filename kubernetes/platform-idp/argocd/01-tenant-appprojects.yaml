@@ -1,0 +1,69 @@
+# ==============================================================================
+# Multi-Tenant Argo CD AppProjects (Platform Governance Boundaries)
+# Separates Platform Engineering privileges (cluster-scoped operators, CRDs)
+# from Application Developer tenants (namespace-scoped workloads only).
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform-core
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: k8s-lab-idp
+spec:
+  description: "Platform Engineering control plane: CNI, Kyverno, ESO, Observability, Barnacles, and AI Inference"
+  sourceRepos:
+    - "https://github.com/sarkarbikram90/tf-gcp-k8s-lab.git"
+  destinations:
+    - namespace: "*"
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: tenant-workloads
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: k8s-lab-idp
+spec:
+  description: "Self-service developer workloads governed by Golden Path templates and Kyverno policies"
+  sourceRepos:
+    - "https://github.com/sarkarbikram90/tf-gcp-k8s-lab.git"
+  destinations:
+    - namespace: "app-*"
+      server: https://kubernetes.default.svc
+    - namespace: "preview-*"
+      server: https://kubernetes.default.svc
+  # Prevent tenant applications from escalating privileges via cluster-scoped resources
+  clusterResourceWhitelist: []
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange
+  namespaceResourceWhitelist:
+    - group: "apps"
+      kind: Deployment
+    - group: "apps"
+      kind: StatefulSet
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ServiceAccount
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: PersistentVolumeClaim
+    - group: "networking.k8s.io"
+      kind: Ingress
+    - group: "networking.k8s.io"
+      kind: NetworkPolicy
+    - group: "autoscaling"
+      kind: HorizontalPodAutoscaler
+    - group: "policy"
+      kind: PodDisruptionBudget
+    - group: "external-secrets.io"
+      kind: ExternalSecret

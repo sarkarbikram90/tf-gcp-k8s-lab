@@ -1,0 +1,13 @@
+# ==============================================================================
+# Composable Add-On Brick: 10Gi PersistentVolumeClaim
+# ==============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: workload-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

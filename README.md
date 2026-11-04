@@ -11,19 +11,19 @@ Designed for **CKA/CKS candidates**, **Site Reliability Engineers (SREs)**, and 
 
 ---
 
-## Architecture: Progressive 5-Level Roadmap
+## Architecture: Progressive 6-Level Roadmap
 
-Instead of isolated tutorials, this repository presents a progressive evolution sharing unified Terraform modules, SRE operational standards, and AI inference infrastructure:
+Instead of isolated tutorials, this repository presents a progressive evolution sharing unified Terraform modules, SRE operational standards, AI inference infrastructure, and a self-service Internal Developer Platform (IDP):
 
 ```
-                                           ONE REPOSITORY
-                                                 │
-       ┌─────────────────────────┬───────────────┴───────────────┬─────────────────────────┐
-       ▼                         ▼                               ▼                         ▼
-  Level 1: CKA Lab         Level 2: HA Cluster         Level 3 & 4: Production       Level 5: AI Inference
-• 1 CP + 2 Workers       • 3 CP + 3 Workers          • Zero public IPs + IAP       • vLLM OpenAI Engine (CPU/GPU)
-• Single Subnet + NAT    • Stacked etcd quorum       • WIF CI/CD + Remote State    • NGINX Streaming LLM Gateway
-• Pure kubeadm init      • Internal LB (:6443)       • etcd DR + 10 SRE Labs       • TTFT, TPS & $/1M Token Rules
+                                                    ONE REPOSITORY
+                                                          │
+     ┌────────────────────┬───────────────────┬───────────┴───────────┬────────────────────┬────────────────────┐
+     ▼                    ▼                   ▼                       ▼                    ▼                    ▼
+Level 1: CKA Lab    Level 2: HA Cluster  Level 3 & 4: Prod SRE   Level 5: AI Engine   Project 2: Barnacles Level 6: IDP Platform
+• 1 CP + 2 Workers  • 3 CP + 3 Workers   • Zero Public IPs + IAP • vLLM (CPU / L4 GPU)• Go Log StatefulSet • 20-Line Golden Paths
+• Subnet + NAT      • Stacked etcd       • WIF CI/CD + etcd DR   • Streaming Gateway  • Edge Agent Spooler • Kyverno Auto-Guardrails
+• Pure kubeadm init • Internal LB :6443  • 10 SRE Fault Labs     • TTFT, TPS & $/1M   • OTLP + WebSockets  • Argo CD AppSets + CLI
 ```
 
 - **[Level 1: CKA Lab](docs/architecture/level-1-lab.md)**: Foundational 3-node cluster (1 CP, 2 Workers) with private networking and manual/scripted kubeadm bootstrap.
@@ -32,6 +32,7 @@ Instead of isolated tutorials, this repository presents a progressive evolution 
 - **[Level 4: Production Operations](docs/architecture/level-4-production.md)**: Keyless GitHub Actions CI/CD via Workload Identity Federation (WIF), automated etcd backups to GCS, rolling upgrades, 10-scenario SRE fault injection, and full-stack observability.
 - **[Project 2 Platform Workload: `Barnacles` & Argo CD GitOps](docs/architecture/barnacles-platform.md)**: Production Kustomize & Argo CD deployment of [**`Barnacles`**](https://github.com/sarkarbikram90/barnacles) (`StatefulSet` central log server with `10Gi` PVCs + `DaemonSet` edge log collector with Downward API & durable FIFO disk spooling).
 - **[Level 5: AI Systems & LLM Inference (`vLLM`)](docs/architecture/level-5-ai-inference.md)**: Production-style Kubernetes LLM Inference Platform with CPU/GPU `vLLM` model serving, streaming LLM Gateway, HPA/PDB autoscaling, and Prometheus token economics (`TTFT`, `Tokens/sec`, `$/1M tokens`).
+- **[Level 6: Internal Developer Platform (IDP) & Self-Service Golden Paths](docs/architecture/level-6-idp.md)**: Multi-tenant Argo CD `ApplicationSets` (Git directory auto-sync & PR ephemeral preview environments), Kyverno mutating/generating/validating policies, GCP Secret Manager `ExternalSecrets`, composable Kustomize Golden Path blueprints (`web-service`, `ai-agent-service`), and a 1-command developer scaffolding CLI ([`scripts/platform/scaffold-app.sh`](scripts/platform/scaffold-app.sh)).
 - **[14-Day Kubernetes Engineering Sprint](docs/sprint/README.md)** & **[30-Day Networking Deep Dive](docs/networking/30-day-networking-roadmap.md)**: Structured 42-hour first-principles curriculum ([Day 1](docs/sprint/day-01-walkthrough.md), [Day 2](docs/sprint/day-02-walkthrough.md), [Week 1](docs/sprint/days-03-to-07-week1-guide.md), [Week 2 & 90-Day CKA Plan](docs/sprint/days-08-to-14-week2-guide.md)), Linux/CNI packet tracer, and [Engineering Journal Template](docs/sprint/journal-template.md).
 
 ---
@@ -87,9 +88,12 @@ tf-gcp-k8s-lab/
 │           └── terraform.tfvars.example
 ├── kubernetes/
 │   ├── ai-inference/                   # Level 5: vLLM engine (CPU/GPU), LLM Gateway, HPA, Token Economics
+│   ├── apps/                           # Level 6: Tenant self-service workloads (e.g., order-api)
+│   ├── golden-paths/                   # Level 6: Reusable Golden Path bases & Kustomize components
 │   ├── networking/                     # 30-Day Networking Lab: net-diag DaemonSet, Headless/ClusterIP, Ingress
 │   ├── observability/                  # Prometheus alerts and node-exporter DaemonSet
 │   ├── platform-barnacles/             # Project 2: Barnacles StatefulSet, DaemonSet, Kustomize & Argo CD GitOps
+│   ├── platform-idp/                   # Level 6: Argo CD ApplicationSets, Kyverno policies, External Secrets
 │   └── security/                       # Hardening manifests
 │       ├── encryption-config.yaml      # etcd Secrets Encryption at Rest configuration
 │       ├── audit-policy.yaml           # API Server audit logging policy
@@ -109,10 +113,12 @@ tf-gcp-k8s-lab/
 │   ├── disaster-recovery/              # Automated etcd snapshot backup & restore
 │   ├── networking/                     # End-to-end Linux & Kubernetes packet path tracer
 │   ├── operations/                     # Zero-downtime rolling node upgrades
+│   ├── platform/                       # Level 6: Self-service developer Golden Path scaffolder CLI
+│   │   └── scaffold-app.sh
 │   └── troubleshooting/
 │       └── sre-lab-runner.sh           # Automated 10-scenario failure injector & blind drill harness
 ├── docs/
-│   ├── architecture/                   # Architectural specifications for Levels 1–5 & Barnacles platform
+│   ├── architecture/                   # Architectural specifications for Levels 1–6 & Barnacles platform
 │   ├── networking/                     # 30-Day Kubernetes & Linux Networking Deep-Dive Roadmap
 │   ├── operations/                     # Day-2 operational runbooks
 │   ├── labs/                           # 10-scenario SRE troubleshooting labs & post-mortem template
@@ -426,6 +432,41 @@ kubectl apply -f kubernetes/platform-barnacles/07-argocd-application.yaml
 ```
 
 See the complete [`Barnacles` Platform Architecture & 10-Step Demonstration Runbook](docs/architecture/barnacles-platform.md).
+
+---
+
+## Quickstart: Level 6 (Internal Developer Platform & Golden Paths)
+
+Level 6 gives developers a **20-line self-service Golden Path** (`web-service` or `ai-agent-service`) while Platform Engineers retain full control via **Kyverno** auto-mutation/generation policies, **External Secrets Operator** (GCP Secret Manager), and multi-tenant **Argo CD `ApplicationSets`**.
+
+### 1. Apply the Platform Control Plane (Platform Engineer)
+
+```bash
+# 1. Apply Kyverno mutating (PSS defaults), generating (NetPol/Quota), and validating policies
+kubectl apply -f kubernetes/platform-idp/kyverno/
+
+# 2. Register GCP Secret Manager ClusterSecretStore
+kubectl apply -f kubernetes/platform-idp/external-secrets/01-cluster-secret-store.yaml
+
+# 3. Register multi-tenant Argo CD AppProjects & ApplicationSets (Git directory + PR previews)
+kubectl apply -f kubernetes/platform-idp/argocd/
+```
+
+### 2. Scaffold & Onboard a New Application (Application Developer)
+
+```bash
+# Scaffold an AI-enabled service wired to Level 5 LLM Gateway, Barnacles OTLP logs, and GCP Secret Manager
+./scripts/platform/scaffold-app.sh fraud-detector \
+  --type ai-agent \
+  --team payments \
+  --image ghcr.io/sarkarbikram90/fraud-detector:v1.2.0 \
+  --with-secret
+
+# Preview the compiled zero-trust manifest (or inspect reference app `order-api`)
+kubectl kustomize kubernetes/apps/order-api
+```
+
+See the complete [Level 6 Internal Developer Platform (IDP) Architecture Specification](docs/architecture/level-6-idp.md).
 
 ---
 

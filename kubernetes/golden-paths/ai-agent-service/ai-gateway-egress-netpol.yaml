@@ -1,0 +1,21 @@
+# ==============================================================================
+# Zero-Trust Egress Rule: Permit AI Agent Pods to Call Level 5 LLM Gateway
+# ==============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: workload-ai-gateway-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: service
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ai-inference
+      ports:
+        - protocol: TCP
+          port: 8080

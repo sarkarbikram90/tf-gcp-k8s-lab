@@ -1,0 +1,43 @@
+# ==============================================================================
+# Golden Path Base: ClusterIP Service & Internal NGINX Ingress
+# ==============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: workload
+  labels:
+    app.kubernetes.io/component: service
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: workload
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: app.k8s-lab.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: workload
+                port:
+                  number: 8080

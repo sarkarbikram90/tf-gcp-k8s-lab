@@ -1,0 +1,31 @@
+# ==============================================================================
+# Tenant Application: `order-api` (Golden Path Reference Workload)
+# Demonstrates how a developer deploys a zero-trust, autoscaled, observable,
+# AI-enabled service with GCP Secret Manager integration in ~20 lines.
+# ==============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: app-order-api
+namePrefix: order-api-
+
+labels:
+  - includeSelectors: true
+    pairs:
+      app.kubernetes.io/name: order-api
+      app.kubernetes.io/part-of: commerce-domain
+  - includeSelectors: false
+    pairs:
+      idp.k8s-lab.internal/owner-team: checkout-engineering
+
+# 1. Select the Platform Golden Path Blueprint (`web-service` or `ai-agent-service`)
+resources:
+  - ../../golden-paths/ai-agent-service
+
+# 2. Opt into Composable Platform Bricks (`external-secret`, `persistent-storage`)
+components:
+  - ../../golden-paths/components/external-secret
+
+# 3. Apply Developer Workload Intent
+patches:
+  - path: workload-patch.yaml
