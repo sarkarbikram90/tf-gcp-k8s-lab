@@ -1,0 +1,94 @@
+# ==============================================================================
+# Golden Path Add-On Brick: Progressive Canary Delivery (Argo Rollouts + SLO Gate)
+# Bridges Level 6 Golden Paths with Level 4 Prometheus Golden Signal SLOs and
+# Level 5 vLLM latency metrics for automated canary verification & rollback.
+# ==============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: workload-canary
+  labels:
+    app.kubernetes.io/component: service
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/component: service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: workload-slo-verification
+spec:
+  args:
+    - name: service-namespace
+  metrics:
+    # 1. Verify Golden Path HTTP 5xx Error Ratio stays below 5% SLO (Level 4/6 metric)
+    - name: http-error-rate-slo
+      interval: 30s
+      count: 3
+      successCondition: result[0] < 0.05
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://prometheus-server.observability.svc.cluster.local:9090
+          query: |
+            scalar(
+              sum(rate(http_requests_total{namespace="{{args.service-namespace}}",status=~"5.."}[2m]))
+              /
+              clamp_min(sum(rate(http_requests_total{namespace="{{args.service-namespace}}"}[2m])), 1)
+            )
+    # 2. Verify Barnacles OTLP Fatal Log Spike remains zero during canary promotion
+    - name: barnacles-fatal-log-guard
+      interval: 30s
+      count: 3
+      successCondition: result[0] == 0
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://prometheus-server.observability.svc.cluster.local:9090
+          query: |
+            scalar(
+              sum(increase(barnacles_ingest_events_total{namespace="{{args.service-namespace}}",level="FATAL"}[2m])) or vector(0)
+            )
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: workload-rollout
+  labels:
+    app.kubernetes.io/component: service
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: service
+  workloadRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: workload
+  strategy:
+    canary:
+      stableService: workload
+      canaryService: workload-canary
+      maxSurge: 1
+      maxUnavailable: 0
+      steps:
+        - setWeight: 10
+        - pause:
+            duration: 60s
+        - setWeight: 50
+        - analysis:
+            templates:
+              - templateName: workload-slo-verification
+            args:
+              - name: service-namespace
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.namespace
+        - setWeight: 100

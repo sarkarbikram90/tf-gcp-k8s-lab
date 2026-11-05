@@ -5,12 +5,17 @@ variable "name_prefix" {
 }
 
 variable "instances" {
-  description = "Map of VM instances to provision with their role and machine specs"
+  description = "Map of VM instances to provision with their role, machine specs, and optional GPU/Spot settings"
   type = map(object({
     role         = string
     machine_type = string
     disk_size_gb = optional(number, 30)
     zone         = string
+    spot         = optional(bool, false)
+    gpu_accelerator = optional(object({
+      type  = string
+      count = number
+    }), null)
   }))
 }
 

@@ -67,3 +67,13 @@ spec:
       kind: PodDisruptionBudget
     - group: "external-secrets.io"
       kind: ExternalSecret
+    - group: "argoproj.io"
+      kind: Rollout
+    - group: "argoproj.io"
+      kind: AnalysisTemplate
+    - group: "gateway.networking.k8s.io"
+      kind: HTTPRoute
+    - group: "rbac.authorization.k8s.io"
+      kind: Role
+    - group: "rbac.authorization.k8s.io"
+      kind: RoleBinding

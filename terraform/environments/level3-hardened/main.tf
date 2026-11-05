@@ -84,7 +84,7 @@ module "compute" {
   service_account_email = module.iam.service_account_email
   assign_public_ip      = false # Zero public IPs strictly enforced
 
-  instances = {
+  instances = merge({
     # 3 Control Plane nodes distributed across failure domains
     "cp-01" = {
       role         = "control-plane"
@@ -124,7 +124,20 @@ module "compute" {
       disk_size_gb = 30
       zone         = var.zones[2 % length(var.zones)]
     }
-  }
+    }, var.enable_gpu_worker_pool ? {
+    # Optional Level 5 AI Inference GPU Worker (NVIDIA L4 24GB + 100GB model cache disk)
+    "gpu-worker-01" = {
+      role         = "worker"
+      machine_type = var.gpu_worker_machine_type
+      disk_size_gb = 100
+      zone         = var.zones[0]
+      spot         = var.gpu_worker_spot
+      gpu_accelerator = {
+        type  = var.gpu_accelerator_type
+        count = 1
+      }
+    }
+  } : {})
 
   depends_on = [module.nat]
 }

@@ -1,0 +1,34 @@
+# ==============================================================================
+# Tenant Application: `sre-copilot` (Closed-Loop AI Incident Responder)
+# Connects Level 4 Prometheus Alerts + Project 2 Barnacles Log Search +
+# Level 5 vLLM Inference Gateway on top of the Level 6 AI Agent Golden Path.
+# ==============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: app-sre-copilot
+namePrefix: sre-copilot-
+
+labels:
+  - includeSelectors: true
+    pairs:
+      app.kubernetes.io/name: sre-copilot
+      app.kubernetes.io/part-of: autonomous-sre-platform
+  - includeSelectors: false
+    pairs:
+      idp.k8s-lab.internal/owner-team: sre-platform-engineering
+
+# 1. Select the AI Agent Golden Path Blueprint (pre-wired to vLLM & Barnacles)
+resources:
+  - ../../golden-paths/ai-agent-service
+  - rbac-and-netpol.yaml
+
+# 2. Opt into Composable Platform Bricks (Cloud Secret + SLO Canary + Gateway API)
+components:
+  - ../../golden-paths/components/external-secret
+  - ../../golden-paths/components/progressive-canary
+  - ../../golden-paths/components/gateway-route
+
+# 3. Apply Developer Workload Intent
+patches:
+  - path: workload-patch.yaml

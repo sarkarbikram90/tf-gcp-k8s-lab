@@ -11,3 +11,9 @@ worker_machine_type        = "e2-medium"
 # Security Features
 enable_kms                 = true
 enable_secret_manager      = true
+
+# Level 5 AI Inference Optional Spot GPU Pool (NVIDIA L4)
+enable_gpu_worker_pool     = false
+gpu_worker_machine_type    = "g2-standard-4"
+gpu_accelerator_type       = "nvidia-l4"
+gpu_worker_spot            = true

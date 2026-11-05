@@ -50,12 +50,7 @@ jobs:
       - name: "Checkout Code"
         uses: actions/checkout@v4
 
-      - name: "Validate Golden Paths & Tenant Overlays"
+      - name: "Validate Golden Paths, Tenant Overlays & Shift-Left Policies"
         run: |
-          kubectl kustomize kubernetes/platform-barnacles > /dev/null
-          kubectl kustomize kubernetes/golden-paths/web-service > /dev/null
-          kubectl kustomize kubernetes/golden-paths/ai-agent-service > /dev/null
-          for app_dir in kubernetes/apps/*/; do
-            echo "Validating tenant workload: ${app_dir}"
-            kubectl kustomize "${app_dir}" > /dev/null
-          done
+          chmod +x scripts/platform/verify-platform-policies.sh
+          ./scripts/platform/verify-platform-policies.sh

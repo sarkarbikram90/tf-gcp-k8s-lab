@@ -18,11 +18,11 @@ Never start an investigation by deleting a failing Pod. Before running a single 
 
 ---
 
-## 2. The 10-Scenario SRE Troubleshooting Matrix
+## 2. The 14-Scenario SRE Troubleshooting Matrix (Core Kubernetes + Barnacles + vLLM + IDP)
 
 Use the automated lab runner ([`scripts/troubleshooting/sre-lab-runner.sh`](../../scripts/troubleshooting/sre-lab-runner.sh)) to inject, verify, or run blind timed drills (`random`) across the scenarios below:
 
-| Lab | Scenario | Layer / Component | CKA Domain | Inject Command | Runbook |
+| Lab | Scenario | Layer / Component | Domain | Inject Command | Runbook |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **01** | **Broken CNI & CoreDNS Stuck** | Node / CNI (`/etc/cni/net.d`, Flannel) | Troubleshooting (30%) & Networking (20%) | `./scripts/troubleshooting/sre-lab-runner.sh inject 01` | [Lab 01](lab-01-broken-cni.md) |
 | **02** | **Control Plane & `etcd` Quorum Loss** | Control Plane (`etcd`, Static Pods) | Cluster Architecture (25%) & Troubleshooting (30%) | `./scripts/troubleshooting/sre-lab-runner.sh inject 02` | [Lab 02](lab-02-etcd-quorum-loss.md) |
@@ -34,6 +34,10 @@ Use the automated lab runner ([`scripts/troubleshooting/sre-lab-runner.sh`](../.
 | **08** | **Service Blackhole, DNS & `NetworkPolicy`** | `CoreDNS`, `EndpointSlices`, `kube-proxy`, CNI | Services & Networking (20%) | `./scripts/troubleshooting/sre-lab-runner.sh inject 08` | [Lab 08](lab-08-service-networking-and-dns.md) |
 | **09** | **`PVC Pending`, `StorageClass` & Persistence** | `pv-controller`, CSI, Static/Dynamic Binding | Storage (10%) | `./scripts/troubleshooting/sre-lab-runner.sh inject 09` | [Lab 09](lab-09-pvc-pending-storage.md) |
 | **10** | **Stuck Rollout, Readiness Probes & `PDB`** | `deployment-controller`, Probes, Eviction API | Workloads (15%) & Troubleshooting (30%) | `./scripts/troubleshooting/sre-lab-runner.sh inject 10` | [Lab 10](lab-10-stuck-rollout-and-probes.md) |
+| **11** | **`Barnacles` Partition & Edge Spool Drain** | Project 2 (`Barnacles` Agent FIFO Spool & NetPol) | Distributed Logging & Network Partition | `./scripts/troubleshooting/sre-lab-runner.sh inject 11` | [Lab 11](lab-11-barnacles-spool-partition.md) |
+| **12** | **`vLLM` Queue Saturation & Readiness Shedding** | Level 5 (`vLLM` Continuous Batching & Probes) | AI Inference SRE & Token Economics | `./scripts/troubleshooting/sre-lab-runner.sh inject 12` | [Lab 12](lab-12-vllm-queue-saturation.md) |
+| **13** | **IDP Governance & Kyverno Hygiene Violations** | Level 6 (Kyverno Policies & Restricted PSS) | Platform Engineering & Policy-as-Code | `./scripts/troubleshooting/sre-lab-runner.sh inject 13` | [Lab 13](lab-13-idp-kyverno-admission.md) |
+| **14** | **`ExternalSecret` & Secret Key Mapping Drift** | Level 6 (External Secrets Operator & GCP SM) | Zero-Trust Cloud Secrets & Config | `./scripts/troubleshooting/sre-lab-runner.sh inject 14` | [Lab 14](lab-14-external-secret-sync.md) |
 
 ---
 

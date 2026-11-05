@@ -1,0 +1,70 @@
+# ==============================================================================
+# Level 5 + 30-Day Networking Integration: Gateway API Weighted Model Canary
+# Splits live OpenAI `/v1/chat/completions` traffic 90/10 between baseline FP16
+# `vllm-engine-svc` and 4-bit AWQ quantized `vllm-engine-awq-svc` (or 100% via
+# header `X-Model-Canary: awq-int4`) to evaluate TTFT vs $/1M tokens in production.
+# ==============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-engine-awq-svc
+  namespace: ai-inference
+  labels:
+    app.kubernetes.io/name: vllm-engine
+    app.kubernetes.io/component: model-server-canary
+    quantization: awq-int4
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vllm-engine
+  ports:
+    - name: http-openai
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: llm-inference-canary-split
+  namespace: ai-inference
+  labels:
+    app.kubernetes.io/part-of: level5-ai-platform
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: k8s-lab-internal-gateway
+      namespace: ingress-nginx
+  hostnames:
+    - "llm.k8s-lab.internal"
+  rules:
+    # Rule 1: Explicit Header-Based Canary Routing for Benchmark Harness
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1
+          headers:
+            - name: X-Model-Canary
+              value: awq-int4
+      timeouts:
+        request: 180s
+      backendRefs:
+        - name: vllm-engine-awq-svc
+          port: 8000
+          weight: 100
+
+    # Rule 2: Default 90% Baseline FP16 / 10% AWQ INT4 Weighted Traffic Split
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /v1
+      timeouts:
+        request: 180s
+      backendRefs:
+        - name: vllm-engine-svc
+          port: 8000
+          weight: 90
+        - name: vllm-engine-awq-svc
+          port: 8000
+          weight: 10

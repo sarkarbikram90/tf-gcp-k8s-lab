@@ -29,3 +29,12 @@ output "worker_ips" {
     if contains(inst.tags, "k8s-worker")
   }
 }
+
+output "gpu_worker_ips" {
+  description = "Map of GPU-accelerated worker node names to their internal IP addresses (Level 5 vLLM)"
+  value = {
+    for k, inst in google_compute_instance.node :
+    inst.name => inst.network_interface[0].network_ip
+    if contains(inst.tags, "k8s-gpu-worker")
+  }
+}

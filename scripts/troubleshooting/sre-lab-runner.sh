@@ -2,13 +2,13 @@
 # ==============================================================================
 # Script: sre-lab-runner.sh
 # Purpose: Automated Failure-Injection, Verification & Blind Timed Drill Harness
-#          for the 10-Scenario Kubernetes SRE Troubleshooting Laboratory.
+#          for the 14-Scenario Kubernetes, Barnacles, vLLM & IDP SRE Laboratory.
 # Usage:
 #   ./scripts/troubleshooting/sre-lab-runner.sh list
-#   ./scripts/troubleshooting/sre-lab-runner.sh inject <01..10> [--allow-node-fault]
+#   ./scripts/troubleshooting/sre-lab-runner.sh inject <01..14> [--allow-node-fault]
 #   ./scripts/troubleshooting/sre-lab-runner.sh random
 #   ./scripts/troubleshooting/sre-lab-runner.sh status
-#   ./scripts/troubleshooting/sre-lab-runner.sh verify <01..10|current>
+#   ./scripts/troubleshooting/sre-lab-runner.sh verify <01..14|current>
 #   ./scripts/troubleshooting/sre-lab-runner.sh reset [all]
 # ==============================================================================
 
@@ -41,6 +41,10 @@ normalize_id() {
     8|08) echo "08" ;;
     9|09) echo "09" ;;
     10)   echo "10" ;;
+    11)   echo "11" ;;
+    12)   echo "12" ;;
+    13)   echo "13" ;;
+    14)   echo "14" ;;
     current) echo "current" ;;
     all)  echo "all" ;;
     *)    echo "" ;;
@@ -90,13 +94,13 @@ Kubernetes SRE Troubleshooting Lab Runner (tf-gcp-k8s-lab)
 
 Usage:
   ./scripts/troubleshooting/sre-lab-runner.sh list
-  ./scripts/troubleshooting/sre-lab-runner.sh inject <01..10> [--allow-node-fault]
+  ./scripts/troubleshooting/sre-lab-runner.sh inject <01..14> [--allow-node-fault]
   ./scripts/troubleshooting/sre-lab-runner.sh random
   ./scripts/troubleshooting/sre-lab-runner.sh status
-  ./scripts/troubleshooting/sre-lab-runner.sh verify <01..10|current>
+  ./scripts/troubleshooting/sre-lab-runner.sh verify <01..14|current>
   ./scripts/troubleshooting/sre-lab-runner.sh reset [all]
 
-Scenarios:
+Scenarios (Levels 1-4 Core Kubernetes):
   01  Broken CNI & CoreDNS Readiness
   02  Control Plane Static Pods & etcd Quorum Health
   03  Node NotReady, Kubelet Daemon & PKI Certificate Expiry
@@ -107,6 +111,12 @@ Scenarios:
   08  Service Routing Blackhole: Selector Drift, targetPort & NetworkPolicy/DNS
   09  Storage Provisioning: PVC Pending, StorageClass Mismatch & Persistence
   10  Stuck Deployment Rollout: Failing Readiness Probe & PDB Deadlock
+
+Scenarios (Project 2 Barnacles, Level 5 vLLM & Level 6 IDP Platform):
+  11  Barnacles Log Platform: Network Partition & Edge Spool Drain Recovery
+  12  Level 5 AI Inference: vLLM Queue Saturation & Readiness Probe Shedding
+  13  Level 6 IDP Governance: Kyverno Hygiene & Restricted PSS Violations
+  14  Level 6 Cloud Secrets: ExternalSecret & Secret Key Mapping Drift
 EOF
 }
 
@@ -666,6 +676,287 @@ EOF
   ]' >/dev/null
 }
 
+inject_11() {
+  ensure_namespace
+  record_state "11" "${1:-explicit}"
+  kubectl apply -n "${LAB_NAMESPACE}" -f - <<'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: barnacles-server-sim
+  labels:
+    sre-lab: "11"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: barnacles-server-sim
+  template:
+    metadata:
+      labels:
+        app: barnacles-server-sim
+        sre-lab: "11"
+    spec:
+      containers:
+        - name: server
+          image: nginx:1.27-alpine
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: barnacles-ingest-svc
+  labels:
+    sre-lab: "11"
+spec:
+  selector:
+    app: barnacles-server-sim
+  ports:
+    - name: http-ingest
+      protocol: TCP
+      port: 8080
+      targetPort: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: barnacles-agent-sim
+  labels:
+    sre-lab: "11"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: barnacles-agent-sim
+  template:
+    metadata:
+      labels:
+        app: barnacles-agent-sim
+        sre-lab: "11"
+    spec:
+      containers:
+        - name: agent
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /app/data/agent-spool
+              echo '{"ts":"2026-11-05T12:00:00Z","level":"ERROR","msg":"buffered during network partition"}' > /app/data/agent-spool/batch-0001.inflight
+              while true; do
+                if wget -qO- --timeout=2 http://barnacles-ingest-svc.sre-lab.svc.cluster.local:8080 >/dev/null 2>&1; then
+                  rm -f /app/data/agent-spool/*.inflight
+                  echo "[barnacles-agent] Spool drained to central server successfully"
+                else
+                  echo "[barnacles-agent] Central server unreachable; spooling batch to /app/data/agent-spool/batch-0001.inflight" >&2
+                fi
+                sleep 5
+              done
+          volumeMounts:
+            - name: spool
+              mountPath: /app/data/agent-spool
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      volumes:
+        - name: spool
+          emptyDir: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: barnacles-agent-partition-lock
+  labels:
+    sre-lab: "11"
+spec:
+  podSelector:
+    matchLabels:
+      app: barnacles-agent-sim
+  policyTypes:
+    - Egress
+  # Fault: Egress locked to wrong port (9999 instead of 8080) and missing CoreDNS (UDP/TCP 53)
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: barnacles-server-sim
+      ports:
+        - protocol: TCP
+          port: 9999
+EOF
+  log_info "See Runbook: docs/labs/lab-11-barnacles-spool-partition.md"
+}
+
+inject_12() {
+  ensure_namespace
+  record_state "12" "${1:-explicit}"
+  kubectl apply -n "${LAB_NAMESPACE}" -f - <<'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-serving-sim
+  labels:
+    sre-lab: "12"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vllm-serving-sim
+  template:
+    metadata:
+      labels:
+        app: vllm-serving-sim
+        sre-lab: "12"
+    spec:
+      containers:
+        - name: vllm
+          image: nginx:1.27-alpine
+          env:
+            # Fault 1: MAX_NUM_SEQS set to 0 (rejecting all continuous batching slots)
+            - name: MAX_NUM_SEQS
+              value: "0"
+            - name: GPU_MEMORY_UTILIZATION
+              value: "0.90"
+          ports:
+            - name: http-openai
+              containerPort: 80
+          # Fault 2: Readiness probe checks wrong port (8009 instead of 80), shedding all endpoints
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8009
+            initialDelaySeconds: 1
+            periodSeconds: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-sim-svc
+  labels:
+    sre-lab: "12"
+spec:
+  selector:
+    app: vllm-serving-sim
+  ports:
+    - name: http-openai
+      protocol: TCP
+      port: 8000
+      targetPort: 80
+EOF
+  log_info "See Runbook: docs/labs/lab-12-vllm-queue-saturation.md"
+}
+
+inject_13() {
+  ensure_namespace
+  record_state "13" "${1:-explicit}"
+  kubectl apply -n "${LAB_NAMESPACE}" -f - <<'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rogue-tenant-service
+  labels:
+    sre-lab: "13"
+    # Fault 1: Missing mandatory 'idp.k8s-lab.internal/owner-team' FinOps label
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rogue-tenant-service
+  template:
+    metadata:
+      labels:
+        app: rogue-tenant-service
+        sre-lab: "13"
+    spec:
+      # Fault 2: Missing pod-level runAsNonRoot: true
+      containers:
+        - name: app
+          # Fault 3: Uses mutable ':latest' tag prohibited by Kyverno policy 'idp-validate-production-hygiene'
+          image: busybox:latest
+          command: ["sh", "-c", "sleep 3600"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+EOF
+  log_info "See Runbook: docs/labs/lab-13-idp-kyverno-admission.md"
+}
+
+inject_14() {
+  ensure_namespace
+  record_state "14" "${1:-explicit}"
+  kubectl apply -n "${LAB_NAMESPACE}" -f - <<'EOF'
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gcp-sm-order-api-synced
+  labels:
+    sre-lab: "14"
+type: Opaque
+stringData:
+  DATABASE_URI: "postgresql://order_user:zero-trust-secret@10.10.0.50:5432/orders"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-worker-idp
+  labels:
+    sre-lab: "14"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: order-worker-idp
+  template:
+    metadata:
+      labels:
+        app: order-worker-idp
+        sre-lab: "14"
+    spec:
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sh", "-c", "test -n \"$DATABASE_URI\" && sleep 3600"]
+          env:
+            # Fault: Secret name & key drift from ExternalSecret synced target ('gcp-sm-order-api-synced' / 'DATABASE_URI')
+            - name: DATABASE_URI
+              valueFrom:
+                secretKeyRef:
+                  name: gcp-sm-order-api-missing-secret
+                  key: DB_CONN_STRING_WRONG_KEY
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+EOF
+  log_info "See Runbook: docs/labs/lab-14-external-secret-sync.md"
+}
+
 # ------------------------------------------------------------------------------
 # Verification Functions (01 - 10)
 # ------------------------------------------------------------------------------
@@ -758,6 +1049,56 @@ verify_10() {
   log_ok "Lab 10 Verified: 'inference-gateway' rollout completed cleanly and PDB allows voluntary disruptions (${allowed})!"
 }
 
+verify_11() {
+  kubectl rollout status deployment/barnacles-server-sim -n "${LAB_NAMESPACE}" --timeout=20s >/dev/null
+  kubectl rollout status deployment/barnacles-agent-sim -n "${LAB_NAMESPACE}" --timeout=20s >/dev/null
+  kubectl exec -n "${LAB_NAMESPACE}" deploy/barnacles-agent-sim -- wget -qO- --timeout=4 http://barnacles-ingest-svc.sre-lab.svc.cluster.local:8080 >/dev/null
+  local inflight_count
+  inflight_count="$(kubectl exec -n "${LAB_NAMESPACE}" deploy/barnacles-agent-sim -- sh -c 'ls -1 /app/data/agent-spool/*.inflight 2>/dev/null | wc -l' | tr -d ' ')"
+  if [[ "${inflight_count}" -ne 0 ]]; then
+    log_err "Barnacles agent still has ${inflight_count} undrained .inflight spool file(s)."
+    exit 1
+  fi
+  log_ok "Lab 11 Verified: Barnacles network partition healed and edge spool drained with zero data loss!"
+}
+
+verify_12() {
+  kubectl rollout status deployment/vllm-serving-sim -n "${LAB_NAMESPACE}" --timeout=20s >/dev/null
+  local max_seqs
+  max_seqs="$(kubectl get deployment vllm-serving-sim -n "${LAB_NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="MAX_NUM_SEQS")].value}')"
+  if [[ "${max_seqs:-0}" -lt 16 ]]; then
+    log_err "vLLM MAX_NUM_SEQS is '${max_seqs:-0}' (must be >= 16 to prevent continuous batching queue starvation)."
+    exit 1
+  fi
+  log_ok "Lab 12 Verified: vLLM serving replicas are Ready with MAX_NUM_SEQS=${max_seqs} and active Service endpoints!"
+}
+
+verify_13() {
+  kubectl rollout status deployment/rogue-tenant-service -n "${LAB_NAMESPACE}" --timeout=20s >/dev/null
+  local owner_team image run_as_non_root
+  owner_team="$(kubectl get deployment rogue-tenant-service -n "${LAB_NAMESPACE}" -o jsonpath='{.metadata.labels.idp\.k8s-lab\.internal/owner-team}')"
+  image="$(kubectl get deployment rogue-tenant-service -n "${LAB_NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[0].image}')"
+  run_as_non_root="$(kubectl get deployment rogue-tenant-service -n "${LAB_NAMESPACE}" -o jsonpath='{.spec.template.spec.securityContext.runAsNonRoot}')"
+  if [[ -z "${owner_team}" ]]; then
+    log_err "Deployment 'rogue-tenant-service' is still missing label 'idp.k8s-lab.internal/owner-team'."
+    exit 1
+  fi
+  if [[ "${image}" == *":latest" ]]; then
+    log_err "Container image '${image}' still uses a mutable ':latest' tag."
+    exit 1
+  fi
+  if [[ "${run_as_non_root}" != "true" ]]; then
+    log_err "Pod securityContext.runAsNonRoot is '${run_as_non_root}' (expected 'true' for restricted PSS)."
+    exit 1
+  fi
+  log_ok "Lab 13 Verified: 'rogue-tenant-service' satisfies all Level 6 Kyverno & Restricted PSS guardrails (owner-team=${owner_team}, image=${image})!"
+}
+
+verify_14() {
+  kubectl rollout status deployment/order-worker-idp -n "${LAB_NAMESPACE}" --timeout=20s >/dev/null
+  log_ok "Lab 14 Verified: 'order-worker-idp' Secret reference & key mapping aligned with synced ExternalSecret ('gcp-sm-order-api-synced')!"
+}
+
 # ------------------------------------------------------------------------------
 # Reset / Teardown
 # ------------------------------------------------------------------------------
@@ -793,7 +1134,7 @@ case "${ACTION}" in
   inject)
     LAB_ID="$(normalize_id "${TARGET}")"
     if [[ -z "${LAB_ID}" ]] || [[ "${LAB_ID}" == "current" ]] || [[ "${LAB_ID}" == "all" ]]; then
-      log_err "Please specify a valid lab ID (01..10)."
+      log_err "Please specify a valid lab ID (01..14)."
       usage
       exit 1
     fi
@@ -804,7 +1145,7 @@ case "${ACTION}" in
     ;;
 
   random)
-    CANDIDATES=("05" "06" "07" "08" "09" "10")
+    CANDIDATES=("05" "06" "07" "08" "09" "10" "11" "12" "13" "14")
     RANDOM_INDEX=$(( RANDOM % ${#CANDIDATES[@]} ))
     CHOSEN_LAB="${CANDIDATES[$RANDOM_INDEX]}"
     log_warn "=================================================================="
@@ -842,7 +1183,7 @@ case "${ACTION}" in
       LAB_ID="$(get_active_lab)"
     fi
     if [[ -z "${LAB_ID}" ]]; then
-      log_err "Could not determine active lab ID. Specify explicitly: verify <01..10>"
+      log_err "Could not determine active lab ID. Specify explicitly: verify <01..14>"
       exit 1
     fi
     log_info "Verifying remediation for Lab ${LAB_ID}..."

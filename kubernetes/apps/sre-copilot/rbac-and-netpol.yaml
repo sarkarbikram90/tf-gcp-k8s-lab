@@ -1,0 +1,55 @@
+# ==============================================================================
+# Least-Privilege Read-Only Diagnostics RBAC & Cross-Namespace Observability Egress
+# ==============================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: diagnostics-reader
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "events", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: diagnostics-reader-binding
+subjects:
+  - kind: ServiceAccount
+    name: workload-sa
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: diagnostics-reader
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: observability-query-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: service
+  policyTypes:
+    - Egress
+  egress:
+    # Permit querying Prometheus metrics in 'observability' namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - protocol: TCP
+          port: 9090
+    # Permit read-only Kubernetes API server queries (:443 / :6443)
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443

@@ -16,6 +16,8 @@
 #   --max-replicas <number>         HPA maximum replicas (default: 6)
 #   --with-secret                   Attach GCP Secret Manager ExternalSecret component
 #   --with-storage                  Attach 10Gi PersistentVolumeClaim component
+#   --with-canary                   Attach Argo Rollouts SLO-gated Progressive Canary brick
+#   --with-gateway-api              Attach Kubernetes Gateway API HTTPRoute brick
 #   --force                         Overwrite existing app directory if present
 # ==============================================================================
 
@@ -40,6 +42,8 @@ Options:
   --max-replicas <number>         HPA maximum replicas (default: 6)
   --with-secret                   Include GCP Secret Manager ExternalSecret brick
   --with-storage                  Include 10Gi PersistentVolumeClaim brick
+  --with-canary                   Include Argo Rollouts SLO-gated Progressive Canary brick
+  --with-gateway-api              Include Kubernetes Gateway API HTTPRoute brick
   --force                         Overwrite target directory if it already exists
   -h, --help                      Show this help message
 
@@ -74,6 +78,8 @@ MIN_REPLICAS="2"
 MAX_REPLICAS="6"
 WITH_SECRET=false
 WITH_STORAGE=false
+WITH_CANARY=false
+WITH_GATEWAY_API=false
 FORCE=false
 
 while [[ $# -gt 0 ]]; do
@@ -108,6 +114,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --with-storage)
       WITH_STORAGE=true
+      shift
+      ;;
+    --with-canary)
+      WITH_CANARY=true
+      shift
+      ;;
+    --with-gateway-api)
+      WITH_GATEWAY_API=true
       shift
       ;;
     --force)
@@ -169,13 +183,19 @@ mkdir -p "${APP_DIR}"
 
 # 4. Build Kustomize components block if optional bricks were requested
 COMPONENTS_BLOCK=""
-if [[ "${WITH_SECRET}" == "true" || "${WITH_STORAGE}" == "true" ]]; then
+if [[ "${WITH_SECRET}" == "true" || "${WITH_STORAGE}" == "true" || "${WITH_CANARY}" == "true" || "${WITH_GATEWAY_API}" == "true" ]]; then
   COMPONENTS_BLOCK=$'\ncomponents:'
   if [[ "${WITH_SECRET}" == "true" ]]; then
     COMPONENTS_BLOCK="${COMPONENTS_BLOCK}"$'\n  - ../../golden-paths/components/external-secret'
   fi
   if [[ "${WITH_STORAGE}" == "true" ]]; then
     COMPONENTS_BLOCK="${COMPONENTS_BLOCK}"$'\n  - ../../golden-paths/components/persistent-storage'
+  fi
+  if [[ "${WITH_CANARY}" == "true" ]]; then
+    COMPONENTS_BLOCK="${COMPONENTS_BLOCK}"$'\n  - ../../golden-paths/components/progressive-canary'
+  fi
+  if [[ "${WITH_GATEWAY_API}" == "true" ]]; then
+    COMPONENTS_BLOCK="${COMPONENTS_BLOCK}"$'\n  - ../../golden-paths/components/gateway-route'
   fi
 fi
 
@@ -303,6 +323,8 @@ echo "  Ingress Host   : https://${APP_NAME}.k8s-lab.internal"
 echo "  Autoscaling    : ${MIN_REPLICAS} -> ${MAX_REPLICAS} replicas (PDB minAvailable: 1)"
 echo "  Cloud Secret   : ${WITH_SECRET}"
 echo "  Persistent PVC : ${WITH_STORAGE}"
+echo "  SLO Canary     : ${WITH_CANARY}"
+echo "  Gateway Route  : ${WITH_GATEWAY_API}"
 echo "------------------------------------------------------------------------------"
 
 if command -v kubectl >/dev/null 2>&1; then

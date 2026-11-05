@@ -19,8 +19,13 @@ output "control_plane_ips" {
 }
 
 output "worker_ips" {
-  description = "Internal IP addresses of the 3 Worker nodes"
+  description = "Internal IP addresses of the Worker nodes"
   value       = module.compute.worker_ips
+}
+
+output "gpu_worker_ips" {
+  description = "Internal IP addresses of the optional NVIDIA L4 GPU Worker nodes (Level 5 vLLM)"
+  value       = module.compute.gpu_worker_ips
 }
 
 output "iap_ssh_commands" {

@@ -1,0 +1,33 @@
+# ==============================================================================
+# Golden Path Add-On Brick: Kubernetes Gateway API HTTPRoute
+# Modern replacement for legacy Ingress, supporting weighted canary splitting,
+# header-based shadow routing, and per-route request timeouts.
+# ==============================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: workload-route
+  labels:
+    app.kubernetes.io/component: service
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: k8s-lab-internal-gateway
+      namespace: ingress-nginx
+  hostnames:
+    - "workload.k8s-lab.internal"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      timeouts:
+        request: 60s
+        backendRequest: 55s
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: workload
+          port: 8080
+          weight: 100

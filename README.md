@@ -11,9 +11,9 @@ Designed for **CKA/CKS candidates**, **Site Reliability Engineers (SREs)**, and 
 
 ---
 
-## Architecture: Progressive 6-Level Roadmap
+## Architecture: Progressive 7-Level Roadmap
 
-Instead of isolated tutorials, this repository presents a progressive evolution sharing unified Terraform modules, SRE operational standards, AI inference infrastructure, and a self-service Internal Developer Platform (IDP):
+Instead of isolated tutorials, this repository presents a progressive evolution sharing unified Terraform modules, SRE operational standards, AI inference infrastructure, a self-service Internal Developer Platform (IDP), and closed-loop AIOps:
 
 ```
                                                     ONE REPOSITORY
@@ -28,11 +28,12 @@ Level 1: CKA Lab    Level 2: HA Cluster  Level 3 & 4: Prod SRE   Level 5: AI Eng
 
 - **[Level 1: CKA Lab](docs/architecture/level-1-lab.md)**: Foundational 3-node cluster (1 CP, 2 Workers) with private networking and manual/scripted kubeadm bootstrap.
 - **[Level 2: High Availability](docs/architecture/level-2-ha.md)**: 3 Control Planes (stacked etcd quorum), 3 Workers, and an Internal TCP Load Balancer.
-- **[Level 3: Security Hardening](docs/architecture/level-3-hardening.md)**: Pure private topology, IAP TCP forwarding, OS Login, strict firewalls, and least-privilege IAM.
-- **[Level 4: Production Operations](docs/architecture/level-4-production.md)**: Keyless GitHub Actions CI/CD via Workload Identity Federation (WIF), automated etcd backups to GCS, rolling upgrades, 10-scenario SRE fault injection, and full-stack observability.
+- **[Level 3: Security Hardening](docs/architecture/level-3-hardening.md)**: Pure private topology, IAP TCP forwarding, OS Login, strict firewalls, least-privilege IAM, and optional Spot NVIDIA L4 GPU worker pool.
+- **[Level 4: Production Operations](docs/architecture/level-4-production.md)**: Keyless GitHub Actions CI/CD via Workload Identity Federation (WIF), automated etcd backups to GCS, rolling upgrades, 14-scenario SRE fault injection, and full-stack observability.
 - **[Project 2 Platform Workload: `Barnacles` & Argo CD GitOps](docs/architecture/barnacles-platform.md)**: Production Kustomize & Argo CD deployment of [**`Barnacles`**](https://github.com/sarkarbikram90/barnacles) (`StatefulSet` central log server with `10Gi` PVCs + `DaemonSet` edge log collector with Downward API & durable FIFO disk spooling).
-- **[Level 5: AI Systems & LLM Inference (`vLLM`)](docs/architecture/level-5-ai-inference.md)**: Production-style Kubernetes LLM Inference Platform with CPU/GPU `vLLM` model serving, streaming LLM Gateway, HPA/PDB autoscaling, and Prometheus token economics (`TTFT`, `Tokens/sec`, `$/1M tokens`).
+- **[Level 5: AI Systems & LLM Inference (`vLLM`)](docs/architecture/level-5-ai-inference.md)**: Production-style Kubernetes LLM Inference Platform with CPU/GPU `vLLM` model serving, Kubernetes `Gateway` API 90/10 canary model splitting, HPA/PDB autoscaling, and Prometheus token economics (`TTFT`, `Tokens/sec`, `$/1M tokens`).
 - **[Level 6: Internal Developer Platform (IDP) & Self-Service Golden Paths](docs/architecture/level-6-idp.md)**: Multi-tenant Argo CD `ApplicationSets` (Git directory auto-sync & PR ephemeral preview environments), Kyverno mutating/generating/validating policies, GCP Secret Manager `ExternalSecrets`, composable Kustomize Golden Path blueprints (`web-service`, `ai-agent-service`), and a 1-command developer scaffolding CLI ([`scripts/platform/scaffold-app.sh`](scripts/platform/scaffold-app.sh)).
+- **[Level 7: Autonomous AIOps, Progressive Delivery & Cloud-to-Cluster Convergence](docs/architecture/level-7-autonomous-platform.md)**: In-cluster AI SRE responder ([`kubernetes/apps/sre-copilot/`](kubernetes/apps/sre-copilot/)) uniting Level 4 Prometheus alerts, `Barnacles` OTLP logs, and Level 5 `vLLM` inference; Argo Rollouts SLO-gated canary delivery (`progressive-canary`); Kubernetes `Gateway` API `HTTPRoute` bricks; cluster add-ons bootstrap ([`kubeadm/scripts/06-install-cluster-addons.sh`](kubeadm/scripts/06-install-cluster-addons.sh)); and shift-left CI policy verification ([`scripts/platform/verify-platform-policies.sh`](scripts/platform/verify-platform-policies.sh)).
 - **[14-Day Kubernetes Engineering Sprint](docs/sprint/README.md)** & **[30-Day Networking Deep Dive](docs/networking/30-day-networking-roadmap.md)**: Structured 42-hour first-principles curriculum ([Day 1](docs/sprint/day-01-walkthrough.md), [Day 2](docs/sprint/day-02-walkthrough.md), [Week 1](docs/sprint/days-03-to-07-week1-guide.md), [Week 2 & 90-Day CKA Plan](docs/sprint/days-08-to-14-week2-guide.md)), Linux/CNI packet tracer, and [Engineering Journal Template](docs/sprint/journal-template.md).
 
 ---
@@ -87,9 +88,9 @@ tf-gcp-k8s-lab/
 │           ├── outputs.tf
 │           └── terraform.tfvars.example
 ├── kubernetes/
-│   ├── ai-inference/                   # Level 5: vLLM engine (CPU/GPU), LLM Gateway, HPA, Token Economics
-│   ├── apps/                           # Level 6: Tenant self-service workloads (e.g., order-api)
-│   ├── golden-paths/                   # Level 6: Reusable Golden Path bases & Kustomize components
+│   ├── ai-inference/                   # Level 5: vLLM engine (CPU/GPU), LLM Gateway, Gateway API Canary, HPA
+│   ├── apps/                           # Level 6/7: Tenant workloads (`order-api`, `sre-copilot`)
+│   ├── golden-paths/                   # Level 6/7: Golden Path bases & bricks (+secret, +pvc, +canary, +gateway)
 │   ├── networking/                     # 30-Day Networking Lab: net-diag DaemonSet, Headless/ClusterIP, Ingress
 │   ├── observability/                  # Prometheus alerts and node-exporter DaemonSet
 │   ├── platform-barnacles/             # Project 2: Barnacles StatefulSet, DaemonSet, Kustomize & Argo CD GitOps
@@ -107,21 +108,23 @@ tf-gcp-k8s-lab/
 │       ├── 02-init-control-plane.sh    # Single CP init, kubectl setup, Flannel CNI
 │       ├── 03-join-worker.sh           # Worker join helper script
 │       ├── 04-init-ha-control-plane.sh # HA Primary CP init with --upload-certs
-│       └── 05-join-control-plane.sh    # Secondary CP join helper script
+│       ├── 05-join-control-plane.sh    # Secondary CP join helper script
+│       └── 06-install-cluster-addons.sh# Storage CSI, NGINX Ingress, Gateway API & Cilium eBPF
 ├── scripts/
 │   ├── ai-inference/                   # vLLM latency, throughput & $/1M token benchmark harness
 │   ├── disaster-recovery/              # Automated etcd snapshot backup & restore
 │   ├── networking/                     # End-to-end Linux & Kubernetes packet path tracer
 │   ├── operations/                     # Zero-downtime rolling node upgrades
-│   ├── platform/                       # Level 6: Self-service developer Golden Path scaffolder CLI
-│   │   └── scaffold-app.sh
+│   ├── platform/                       # Level 6/7: Golden Path scaffolder & shift-left policy verifier
+│   │   ├── scaffold-app.sh
+│   │   └── verify-platform-policies.sh
 │   └── troubleshooting/
-│       └── sre-lab-runner.sh           # Automated 10-scenario failure injector & blind drill harness
+│       └── sre-lab-runner.sh           # Automated 14-scenario failure injector & blind drill harness
 ├── docs/
-│   ├── architecture/                   # Architectural specifications for Levels 1–6 & Barnacles platform
+│   ├── architecture/                   # Architectural specifications for Levels 1–7 & Barnacles platform
 │   ├── networking/                     # 30-Day Kubernetes & Linux Networking Deep-Dive Roadmap
 │   ├── operations/                     # Day-2 operational runbooks
-│   ├── labs/                           # 10-scenario SRE troubleshooting labs & post-mortem template
+│   ├── labs/                           # 14-scenario SRE troubleshooting labs & post-mortem template
 │   └── sprint/                         # 14-Day Kubernetes Sprint walkthroughs (Days 1–14) & 90-Day CKA Plan
 └── README.md
 ```
@@ -356,13 +359,13 @@ kubectl apply -f kubernetes/observability/02-prometheus-alerts.yaml
 kubectl apply -f kubernetes/observability/03-node-exporter-daemonset.yaml
 ```
 
-### 4. Hands-on SRE Troubleshooting Labs (10-Scenario Suite & Automated Fault Injector)
+### 4. Hands-on SRE Troubleshooting Labs (14-Scenario Suite & Automated Fault Injector)
 
-Practice diagnosing and resolving real-world Kubernetes failure modes from first principles using the **[SRE Troubleshooting Playbook](docs/labs/README.md)** and automated fault-injection harness ([`scripts/troubleshooting/sre-lab-runner.sh`](scripts/troubleshooting/sre-lab-runner.sh)):
+Practice diagnosing and resolving real-world Kubernetes, `Barnacles`, `vLLM`, and IDP failure modes from first principles using the **[SRE Troubleshooting Playbook](docs/labs/README.md)** and automated fault-injection harness ([`scripts/troubleshooting/sre-lab-runner.sh`](scripts/troubleshooting/sre-lab-runner.sh)):
 
 ```bash
-# Inject a specific failure scenario (01 through 10)
-./scripts/troubleshooting/sre-lab-runner.sh inject 08
+# Inject a specific failure scenario (01 through 14)
+./scripts/troubleshooting/sre-lab-runner.sh inject 11
 
 # Or launch a blind 25-minute on-call drill (random mystery failure)
 ./scripts/troubleshooting/sre-lab-runner.sh random
@@ -384,6 +387,10 @@ Practice diagnosing and resolving real-world Kubernetes failure modes from first
 - **[Lab 08: Service Routing, DNS & `NetworkPolicy` Blackholes](docs/labs/lab-08-service-networking-and-dns.md)**: Debug empty `EndpointSlices`, `targetPort` drift, `iptables` rules, and restrictive ingress/DNS egress policies.
 - **[Lab 09: `PVC Pending`, `StorageClass` & Persistence](docs/labs/lab-09-pvc-pending-storage.md)**: Resolve unbound `PersistentVolumeClaims`, storage class mismatches, and verify stateful data survival across Pod deletion.
 - **[Lab 10: Stuck Rollouts, Readiness Probes & `PDB` Deadlocks](docs/labs/lab-10-stuck-rollout-and-probes.md)**: Recover deployments failing with `ProgressDeadlineExceeded` and unblock `PodDisruptionBudget` node drains.
+- **[Lab 11: `Barnacles` Partition & Edge Spool Drain Recovery](docs/labs/lab-11-barnacles-spool-partition.md)**: Heal an egress partition blocking log ingestion and verify durable FIFO `.inflight` spool drain.
+- **[Lab 12: `vLLM` Queue Saturation & Readiness Probe Shedding](docs/labs/lab-12-vllm-queue-saturation.md)**: Restore `vLLM` continuous batching (`MAX_NUM_SEQS`) and recover zero-endpoint `503` gateway outages.
+- **[Lab 13: IDP Governance & Kyverno Hygiene Violations](docs/labs/lab-13-idp-kyverno-admission.md)**: Remediate a rogue workload violating `:latest` image blocks, FinOps labels, and `restricted` PSS.
+- **[Lab 14: `ExternalSecret` & Secret Key Mapping Drift](docs/labs/lab-14-external-secret-sync.md)**: Resolve `CreateContainerConfigError` caused by GCP Secret Manager / Kubernetes `Secret` key drift.
 - **[SRE Incident Report Template](docs/labs/incident-report-template.md)**: Standardized post-mortem template for documenting symptoms, hypotheses, evidence, root cause, and preventive actions.
 
 ---
@@ -455,18 +462,25 @@ kubectl apply -f kubernetes/platform-idp/argocd/
 ### 2. Scaffold & Onboard a New Application (Application Developer)
 
 ```bash
-# Scaffold an AI-enabled service wired to Level 5 LLM Gateway, Barnacles OTLP logs, and GCP Secret Manager
+# Scaffold an AI-enabled service wired to Level 5 LLM Gateway, Barnacles OTLP logs,
+# GCP Secret Manager, Argo Rollouts SLO Canary, and Gateway API HTTPRoute
 ./scripts/platform/scaffold-app.sh fraud-detector \
   --type ai-agent \
   --team payments \
   --image ghcr.io/sarkarbikram90/fraud-detector:v1.2.0 \
-  --with-secret
+  --with-secret \
+  --with-canary \
+  --with-gateway-api
 
-# Preview the compiled zero-trust manifest (or inspect reference app `order-api`)
+# Preview the compiled zero-trust manifests (`order-api` or `sre-copilot`)
 kubectl kustomize kubernetes/apps/order-api
+kubectl kustomize kubernetes/apps/sre-copilot
+
+# Run Shift-Left Policy-as-Code verification across all Golden Paths & Tenant Apps
+./scripts/platform/verify-platform-policies.sh
 ```
 
-See the complete [Level 6 Internal Developer Platform (IDP) Architecture Specification](docs/architecture/level-6-idp.md).
+See the complete [Level 6 Internal Developer Platform (IDP) Specification](docs/architecture/level-6-idp.md) and [Level 7 Autonomous AIOps & Progressive Delivery Specification](docs/architecture/level-7-autonomous-platform.md).
 
 ---
 

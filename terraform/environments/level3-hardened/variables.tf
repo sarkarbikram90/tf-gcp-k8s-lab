@@ -56,3 +56,27 @@ variable "enable_secret_manager" {
   type        = bool
   default     = true
 }
+
+variable "enable_gpu_worker_pool" {
+  description = "Whether to provision an optional NVIDIA L4 GPU Spot worker node for Level 5 vLLM inference (disabled by default to avoid GPU billing)"
+  type        = bool
+  default     = false
+}
+
+variable "gpu_worker_machine_type" {
+  description = "Machine type for the optional GPU worker node (g2-standard-4 includes 1x NVIDIA L4 24GB GPU)"
+  type        = string
+  default     = "g2-standard-4"
+}
+
+variable "gpu_accelerator_type" {
+  description = "GCP GPU accelerator type attached to GPU worker nodes"
+  type        = string
+  default     = "nvidia-l4"
+}
+
+variable "gpu_worker_spot" {
+  description = "Use Spot VMs (~60-70% discount) for the GPU worker pool"
+  type        = bool
+  default     = true
+}
