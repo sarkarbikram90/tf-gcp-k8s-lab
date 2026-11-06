@@ -111,6 +111,12 @@ tf-gcp-k8s-lab/
 │       ├── 04-init-ha-control-plane.sh # HA Primary CP init with --upload-certs
 │       ├── 05-join-control-plane.sh    # Secondary CP join helper script
 │       └── 06-install-cluster-addons.sh# Storage CSI, NGINX Ingress, Gateway API & Cilium eBPF
+├── services/
+│   └── order-api/                      # Level 6 Golden Path Go microservice (REST, Prometheus, Barnacles OTLP, vLLM)
+│       ├── cmd/order-api/main.go
+│       ├── internal/server/
+│       ├── Dockerfile
+│       └── go.mod
 ├── scripts/
 │   ├── ai-inference/                   # vLLM latency, throughput & $/1M token benchmark harness
 │   ├── disaster-recovery/              # Automated etcd snapshot backup & restore
@@ -488,6 +494,9 @@ kubectl kustomize kubernetes/apps/sre-copilot
 
 # Run Shift-Left Policy-as-Code verification across all Golden Paths & Tenant Apps
 ./scripts/platform/verify-platform-policies.sh
+
+# Build & test the Go reference microservice (`services/order-api`) backing `kubernetes/apps/order-api`
+cd services/order-api && go vet ./... && go test -v ./...
 ```
 
 See the complete [Level 6 Internal Developer Platform (IDP) Specification](docs/architecture/level-6-idp.md) and [Level 7 Autonomous AIOps & Progressive Delivery Specification](docs/architecture/level-7-autonomous-platform.md).

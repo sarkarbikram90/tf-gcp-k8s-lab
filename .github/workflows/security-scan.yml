@@ -54,3 +54,23 @@ jobs:
         run: |
           chmod +x scripts/platform/verify-platform-policies.sh
           ./scripts/platform/verify-platform-policies.sh
+
+  go-service-verify:
+    name: "Go Microservice Lint & Unit Tests (order-api)"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/order-api
+    steps:
+      - name: "Checkout Code"
+        uses: actions/checkout@v4
+
+      - name: "Set up Go"
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: "Run go vet & go test"
+        run: |
+          go vet ./...
+          go test -v -race ./...
