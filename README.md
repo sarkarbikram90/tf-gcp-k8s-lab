@@ -112,9 +112,14 @@ tf-gcp-k8s-lab/
 │       ├── 05-join-control-plane.sh    # Secondary CP join helper script
 │       └── 06-install-cluster-addons.sh# Storage CSI, NGINX Ingress, Gateway API & Cilium eBPF
 ├── services/
-│   └── order-api/                      # Level 6 Golden Path Go microservice (REST, Prometheus, Barnacles OTLP, vLLM)
-│       ├── cmd/order-api/main.go
-│       ├── internal/server/
+│   ├── order-api/                      # Level 6 Golden Path Go microservice (REST, Prometheus, Barnacles OTLP, vLLM)
+│   │   ├── cmd/order-api/main.go
+│   │   ├── internal/server/
+│   │   ├── Dockerfile
+│   │   └── go.mod
+│   └── sre-copilot/                    # Level 7 Autonomous AIOps & Falco CKS webhook responder (Go)
+│       ├── cmd/sre-copilot/main.go
+│       ├── internal/copilot/
 │       ├── Dockerfile
 │       └── go.mod
 ├── scripts/

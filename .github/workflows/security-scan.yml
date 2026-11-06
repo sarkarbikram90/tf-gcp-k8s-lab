@@ -56,11 +56,8 @@ jobs:
           ./scripts/platform/verify-platform-policies.sh
 
   go-service-verify:
-    name: "Go Microservice Lint & Unit Tests (order-api)"
+    name: "Go Microservices Lint & Unit Tests (order-api & sre-copilot)"
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: services/order-api
     steps:
       - name: "Checkout Code"
         uses: actions/checkout@v4
@@ -70,7 +67,14 @@ jobs:
         with:
           go-version: "1.23"
 
-      - name: "Run go vet & go test"
+      - name: "Verify order-api (go vet & go test -race)"
+        working-directory: services/order-api
+        run: |
+          go vet ./...
+          go test -v -race ./...
+
+      - name: "Verify sre-copilot (go vet & go test -race)"
+        working-directory: services/sre-copilot
         run: |
           go vet ./...
           go test -v -race ./...
