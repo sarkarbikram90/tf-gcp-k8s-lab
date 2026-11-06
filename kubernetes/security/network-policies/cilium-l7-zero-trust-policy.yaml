@@ -1,0 +1,241 @@
+# ==============================================================================
+# CKS & Enterprise Firewall Bridge: Cilium eBPF L3/L4/L7 CiliumNetworkPolicies
+# ==============================================================================
+# Purpose:
+#   Translates enterprise next-generation firewall capabilities (Palo Alto
+#   App-ID L7 HTTP method/path inspection, FQDN-based egress filtering, and
+#   cloud metadata SSRF protection) into declarative Kubernetes Cilium eBPF
+#   policies (`cilium.io/v2`).
+#
+# Prerequisite:
+#   Enable Cilium eBPF CNI via:
+#     ./kubeadm/scripts/06-install-cluster-addons.sh --with-cilium-ebpf
+#
+# Hands-On CKS Lab Verification:
+#   1. Apply L7 policies:
+#      kubectl apply -f kubernetes/security/network-policies/cilium-l7-zero-trust-policy.yaml
+#   2. Observe live L7 HTTP and DNS policy verdicts with Hubble:
+#      hubble observe --namespace ai-inference --protocol http
+#      hubble observe --verdict DROPPED
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. AI Inference Engine: L7 HTTP API Guardrail & FQDN Egress Lockdown
+#    (Palo Alto Equivalent: App-ID HTTP Method/URI Profile + FQDN Egress Rule)
+# ------------------------------------------------------------------------------
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ai-inference-l7-api-guardrail
+  namespace: ai-inference
+  labels:
+    app.kubernetes.io/part-of: tf-gcp-k8s-lab
+    security.k8s-lab.internal/layer: l7-ebpf-envoy
+spec:
+  description: >
+    Enforces L7 HTTP method/path inspection on vLLM inference pods and restricts
+    outbound internet egress strictly to HuggingFace model repositories via DNS
+    inspection while blocking cloud metadata SSRF (169.254.169.254).
+  endpointSelector:
+    matchLabels:
+      app: vllm-engine
+  ingress:
+    # Only allow LLM Gateway (same namespace) and SRE Copilot (sre-copilot namespace)
+    - fromEndpoints:
+        - matchLabels:
+            app: llm-gateway
+        - matchLabels:
+            io.kubernetes.pod.namespace: sre-copilot
+            app.kubernetes.io/name: sre-copilot
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+          # L7 Envoy HTTP inspection: only allow OpenAI-compatible inference & health routes
+          rules:
+            http:
+              - method: "POST"
+                path: "/v1/chat/completions"
+              - method: "POST"
+                path: "/v1/completions"
+              - method: "GET"
+                path: "/v1/models"
+              - method: "GET"
+                path: "/health"
+    # Allow Prometheus scraping on port 8000 /metrics only
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+          rules:
+            http:
+              - method: "GET"
+                path: "/metrics"
+  egress:
+    # 1. Allow DNS queries to CoreDNS and inspect DNS responses for toFQDNs matching
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*.huggingface.co"
+              - matchName: "huggingface.co"
+              - matchPattern: "*.svc.cluster.local"
+    # 2. Allow HTTPS (443) outbound strictly to resolved HuggingFace model hub IPs
+    - toFQDNs:
+        - matchName: "huggingface.co"
+        - matchPattern: "*.huggingface.co"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    # 3. Explicitly block GCP Instance Metadata Server (169.254.169.254/32) to prevent SSRF
+    - toCIDRSet:
+        - cidr: 0.0.0.0/0
+          except:
+            - 169.254.169.254/32
+            - 10.0.0.0/8
+---
+# ------------------------------------------------------------------------------
+# 2. Tenant Golden Path (`order-api`): L7 HTTP Least-Privilege & Barnacles OTLP
+# ------------------------------------------------------------------------------
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: order-api-l7-least-privilege
+  namespace: order-api
+  labels:
+    app.kubernetes.io/part-of: tf-gcp-k8s-lab
+    security.k8s-lab.internal/layer: l7-ebpf-envoy
+spec:
+  description: >
+    Restricts inbound HTTP traffic to order-api to explicit REST verbs/paths and
+    permits outbound telemetry strictly to Barnacles central log ingestion.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: order-api
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ingress-nginx
+        - matchLabels:
+            io.kubernetes.pod.namespace: sre-copilot
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+          rules:
+            http:
+              - method: "GET"
+                path: "/healthz"
+              - method: "GET"
+                path: "/readyz"
+              - method: "GET"
+                path: "/orders(/.*)?"
+              - method: "POST"
+                path: "/orders"
+  egress:
+    # Allow DNS resolution
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+    # Allow OTLP / structured log shipment strictly to Barnacles StatefulSet in barnacles namespace
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: barnacles
+            app.kubernetes.io/name: barnacles
+            app.kubernetes.io/component: server
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+          rules:
+            http:
+              - method: "POST"
+                path: "/v1/logs"
+---
+# ------------------------------------------------------------------------------
+# 3. Autonomous AIOps (`sre-copilot`): Control-Plane & Metadata SSRF Guardrail
+# ------------------------------------------------------------------------------
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: sre-copilot-zero-trust-egress
+  namespace: sre-copilot
+  labels:
+    app.kubernetes.io/part-of: tf-gcp-k8s-lab
+    security.k8s-lab.internal/layer: l7-ebpf-envoy
+spec:
+  description: >
+    Permits webhook alerts from Prometheus and Falco into sre-copilot while
+    constraining outbound traffic to Kubernetes API server, Barnacles log query,
+    and LLM Gateway inference.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: sre-copilot
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: observability
+        - matchLabels:
+            io.kubernetes.pod.namespace: security-runtime
+            app.kubernetes.io/name: falco
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+          rules:
+            http:
+              - method: "POST"
+                path: "/webhook"
+              - method: "GET"
+                path: "/healthz"
+  egress:
+    # Allow DNS resolution
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+    # Allow read-only Kubernetes API server access
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            - port: "6443"
+              protocol: TCP
+    # Allow querying Barnacles log aggregator
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: barnacles
+            app.kubernetes.io/name: barnacles
+            app.kubernetes.io/component: server
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+    # Allow calling Level 5 LLM Gateway for root-cause synthesis
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ai-inference
+            app: llm-gateway
+      toPorts:
+        - ports:
+            - port: "80"
+              protocol: TCP

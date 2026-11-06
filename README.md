@@ -95,11 +95,12 @@ tf-gcp-k8s-lab/
 │   ├── observability/                  # Prometheus alerts and node-exporter DaemonSet
 │   ├── platform-barnacles/             # Project 2: Barnacles StatefulSet, DaemonSet, Kustomize & Argo CD GitOps
 │   ├── platform-idp/                   # Level 6: Argo CD ApplicationSets, Kyverno policies, External Secrets
-│   └── security/                       # Hardening manifests
+│   └── security/                       # Hardening & CKS runtime security manifests
 │       ├── encryption-config.yaml      # etcd Secrets Encryption at Rest configuration
 │       ├── audit-policy.yaml           # API Server audit logging policy
-│       ├── network-policies/           # Default-deny and DNS egress NetworkPolicies
-│       └── pod-security-standards/     # Restricted PSS namespace manifest
+│       ├── network-policies/           # Default-deny, DNS egress & Cilium L7 eBPF policies
+│       ├── pod-security-standards/     # Restricted PSS namespace manifest
+│       └── runtime-security/           # CKS Falco modern eBPF syscall detection & AIOps rules
 ├── kubeadm/
 │   ├── configs/                        # Kubeadm ClusterConfiguration manifests
 │   │   └── ha-cluster-config.yaml
@@ -313,13 +314,22 @@ terraform apply
    Copy [`kubernetes/security/encryption-config.yaml`](kubernetes/security/encryption-config.yaml) to `/etc/kubernetes/enc/encryption-config.yaml` on all control plane nodes before running `kubeadm init`.
 2. **API Server Audit Logging**:
    Copy [`kubernetes/security/audit-policy.yaml`](kubernetes/security/audit-policy.yaml) to `/etc/kubernetes/audit/audit-policy.yaml` on control plane nodes.
-3. **Default-Deny Network Policies**:
+3. **Default-Deny & Cilium Layer-7 eBPF Network Policies**:
    ```bash
-   kubectl apply -f kubernetes/security/network-policies/
+   # Standard Kubernetes L3/L4 NetworkPolicies
+   kubectl apply -f kubernetes/security/network-policies/default-deny-all.yaml
+   kubectl apply -f kubernetes/security/network-policies/allow-dns-egress.yaml
+
+   # Cilium eBPF L7 HTTP/FQDN Zero-Trust Policies (when bootstrapped with --with-cilium-ebpf)
+   kubectl apply -f kubernetes/security/network-policies/cilium-l7-zero-trust-policy.yaml
    ```
 4. **Restricted Pod Security Standards (PSS)**:
    ```bash
    kubectl apply -f kubernetes/security/pod-security-standards/
+   ```
+5. **CKS Runtime Syscall Security (`Falco` Modern eBPF)**:
+   ```bash
+   kubectl apply -f kubernetes/security/runtime-security/01-falco-ebpf-runtime-defense.yaml
    ```
 
 ---

@@ -36,7 +36,8 @@ When interviewers ask about networking or security, use this mental map to conne
 | **Default Deny / Zero-Trust Rulebase Bottom** | Namespace `default-deny-all` ingress/egress + explicit `allow-dns-egress` | [`default-deny-all.yaml`](../../kubernetes/security/network-policies/default-deny-all.yaml) |
 | **Source NAT (Outbound Internet Egress)** | Zero public node IPs + Cloud Router & **Cloud NAT** outbound egress | [`terraform/modules/nat/main.tf`](../../terraform/modules/nat/main.tf) |
 | **GlobalProtect VPN / Bastion Access** | Keyless **Google Cloud IAP TCP Forwarding** (`35.235.240.0/20`) + **OS Login** | [`docs/architecture/level-3-hardening.md`](../architecture/level-3-hardening.md) |
-| **App-ID & Layer-7 Traffic Inspection** | **Kubernetes `Gateway` API** (`HTTPRoute` canary splitting) & **Cilium eBPF** L7 policies | [`06-install-cluster-addons.sh`](../../kubeadm/scripts/06-install-cluster-addons.sh), [`02-gateway-and-ingress-lab.yaml`](../../kubernetes/networking/02-gateway-and-ingress-lab.yaml) |
+| **App-ID & Layer-7 Traffic Inspection** | **Kubernetes `Gateway` API** (`HTTPRoute` canary splitting) & **Cilium eBPF** L7 `CiliumNetworkPolicies` | [`cilium-l7-zero-trust-policy.yaml`](../../kubernetes/security/network-policies/cilium-l7-zero-trust-policy.yaml), [`02-gateway-and-ingress-lab.yaml`](../../kubernetes/networking/02-gateway-and-ingress-lab.yaml) |
+| **Threat Prevention & IPS Signatures** | **Falco Modern eBPF** syscall detection (shells in containers, `/etc/shadow` reads, drift, escape) | [`01-falco-ebpf-runtime-defense.yaml`](../../kubernetes/security/runtime-security/01-falco-ebpf-runtime-defense.yaml) |
 | **Panorama Central Policy Management** | **GitOps Policy-as-Code** (`Argo CD` `ApplicationSets` + `Kyverno` + `verify-platform-policies.sh`) | [`kubernetes/platform-idp/`](../../kubernetes/platform-idp/), [`verify-platform-policies.sh`](../../scripts/platform/verify-platform-policies.sh) |
 | **Packet Capture & Traffic Logs** | `tcpdump`, `conntrack`, `iptables-save`, `nsenter` & automated packet path tracer | [`trace-packet-path.sh`](../../scripts/networking/trace-packet-path.sh), [`30-day-networking-roadmap.md`](../networking/30-day-networking-roadmap.md) |
 
@@ -126,13 +127,13 @@ flowchart LR
 - **Primary Objective:** Combine your enterprise firewall/security instinct with Kubernetes security (`CKS`) so you stand out in the top 5% of platform candidates.
 - **Technical Curriculum (Mapped to CKS Domains):**
   1. **Cluster Setup & Microsegmentation (15%):**
-     - Enforce strict GCP firewall rules ([`terraform/modules/firewall/main.tf`](../../terraform/modules/firewall/main.tf)), default-deny `NetworkPolicies` ([`kubernetes/security/network-policies/`](../../kubernetes/security/network-policies/)), and Cilium eBPF L7 policies ([`06-install-cluster-addons.sh`](../../kubeadm/scripts/06-install-cluster-addons.sh)).
+     - Enforce strict GCP firewall rules ([`terraform/modules/firewall/main.tf`](../../terraform/modules/firewall/main.tf)), default-deny `NetworkPolicies` ([`kubernetes/security/network-policies/`](../../kubernetes/security/network-policies/)), and Cilium eBPF L7 HTTP/FQDN policies ([`cilium-l7-zero-trust-policy.yaml`](../../kubernetes/security/network-policies/cilium-l7-zero-trust-policy.yaml)).
   2. **Cluster Hardening & System Hardening (30%):**
      - Restrict API server access, configure RBAC least privilege, enable KMS `EncryptionConfiguration` ([`encryption-config.yaml`](../../kubernetes/security/encryption-config.yaml)), enforce Restricted Pod Security Standards ([`restricted-namespace.yaml`](../../kubernetes/security/pod-security-standards/restricted-namespace.yaml)), and configure `seccompProfile: RuntimeDefault` and read-only root filesystems.
   3. **Supply Chain Security (20%):**
-     - Run `Gitleaks` and `Trivy` vulnerability/config scanning in GitHub Actions ([`.github/workflows/security-scan.yml`](../../.github/workflows/security-scan.yml)) and enforce image registry allowlists & immutable tags via `Kyverno` ([`03-validate-image-hygiene-and-labels.yaml`](../../kubernetes/platform-idp/kyverno/03-validate-image-hygiene-and-labels.yaml)).
+     - Run `Gitleaks` and `Trivy` vulnerability/config scanning in GitHub Actions ([`.github/workflows/security-scan.yml`](../../.github/workflows/security-scan.yml)) and enforce image registry allowlists & immutable tags via `Kyverno` ([`03-validate-workload-hygiene.yaml`](../../kubernetes/platform-idp/kyverno/03-validate-workload-hygiene.yaml)).
   4. **Monitoring, Logging & Runtime Security (20%):**
-     - Configure Kubernetes API server audit logging ([`audit-policy.yaml`](../../kubernetes/security/audit-policy.yaml)) and deploy **Falco** (eBPF syscall anomaly detection for unexpected container shells, sensitive file reads `/etc/shadow`, or privilege escalation).
+     - Configure Kubernetes API server audit logging ([`audit-policy.yaml`](../../kubernetes/security/audit-policy.yaml)) and deploy **Falco** modern eBPF syscall defense ([`01-falco-ebpf-runtime-defense.yaml`](../../kubernetes/security/runtime-security/01-falco-ebpf-runtime-defense.yaml)) wired to `sre-copilot`.
 - **Certification Milestone:**
   - **Sit and pass the CKS (Certified Kubernetes Security Specialist) exam** by late February 2027.
 
