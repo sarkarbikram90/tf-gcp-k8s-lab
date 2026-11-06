@@ -40,6 +40,7 @@ Commit **3 hours/day** for 14 consecutive days. Every single day must produce a 
   - **[Week 2 Guide (Days 8–14 & 90-Day CKA Plan)](days-08-to-14-week2-guide.md)**: Storage, RBAC, `kubeadm` DR/Upgrades, Blind SRE Drills, Observability & Capstone
   - **[30-Day Kubernetes & Linux Networking Deep-Dive](../networking/30-day-networking-roadmap.md)**: Linux `netns`/`veth`/bridges, VXLAN, `kube-proxy` `iptables`, `CoreDNS` & 10 Network Drills
   - **[Project 2 Integration: `Barnacles` Platform & Argo CD GitOps](../architecture/barnacles-platform.md)**: StatefulSet + DaemonSet + Kustomize + Argo CD delivery
+  - **[6-Month Platform, SRE & AI Infrastructure Execution Plan (`CKA → CKS`)](6-month-career-and-execution-plan.md)**: Month-by-month learning, certification, portfolio, and job-search strategy tailored to 13 years of IT Operations + enterprise network security experience
 
 ### Week 1: Understand How Kubernetes Works Internally
 
