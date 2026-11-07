@@ -125,6 +125,9 @@ tf-gcp-k8s-lab/
 ├── scripts/
 │   ├── ai-inference/                   # vLLM latency, throughput & $/1M token benchmark harness
 │   ├── disaster-recovery/              # Automated etcd snapshot backup & restore
+│   ├── local/                          # 3-node kind topology & local E2E closed-loop test harness
+│   │   ├── kind-config.yaml
+│   │   └── kind-e2e-harness.sh
 │   ├── networking/                     # End-to-end Linux & Kubernetes packet path tracer
 │   ├── operations/                     # Zero-downtime rolling node upgrades
 │   ├── platform/                       # Level 6/7: Golden Path scaffolder & shift-left policy verifier
@@ -138,6 +141,7 @@ tf-gcp-k8s-lab/
 │   ├── operations/                     # Day-2 operational runbooks
 │   ├── labs/                           # 14-scenario SRE troubleshooting labs & post-mortem template
 │   └── sprint/                         # 14-Day Kubernetes Sprint walkthroughs (Days 1–14) & 90-Day CKA Plan
+├── Makefile                            # 1-command developer, policy & local kind E2E automation
 └── README.md
 ```
 
@@ -500,8 +504,14 @@ kubectl kustomize kubernetes/apps/sre-copilot
 # Run Shift-Left Policy-as-Code verification across all Golden Paths & Tenant Apps
 ./scripts/platform/verify-platform-policies.sh
 
-# Build & test the Go reference microservice (`services/order-api`) backing `kubernetes/apps/order-api`
-cd services/order-api && go vet ./... && go test -v ./...
+# Build & test the Go reference microservices (`services/order-api` & `services/sre-copilot`)
+make test
+
+# Run the zero-Docker local E2E closed-loop pipeline (order-api -> sre-copilot -> Markdown Post-Mortem)
+make e2e-local
+
+# Or provision a 3-node local kind cluster and run the E2E suite
+make kind-e2e
 ```
 
 See the complete [Level 6 Internal Developer Platform (IDP) Specification](docs/architecture/level-6-idp.md) and [Level 7 Autonomous AIOps & Progressive Delivery Specification](docs/architecture/level-7-autonomous-platform.md).

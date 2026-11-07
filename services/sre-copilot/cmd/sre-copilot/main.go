@@ -4,10 +4,12 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,6 +26,8 @@ func main() {
 		PodNamespace:           envOrDefault("POD_NAMESPACE", "sre-copilot"),
 		BarnaclesQueryEndpoint: os.Getenv("BARNACLES_QUERY_ENDPOINT"),
 		PrometheusQueryURL:     os.Getenv("PROMETHEUS_QUERY_ENDPOINT"),
+		K8sAPIURL:              resolveK8sAPIURL(),
+		K8sBearerToken:         resolveK8sBearerToken(),
 		OpenAIAPIBase:          os.Getenv("OPENAI_API_BASE"),
 		LLMModelName:           envOrDefault("LLM_MODEL_NAME", "meta-llama/Llama-3.1-8B-Instruct"),
 		RCATemplateFormat:      envOrDefault("RCA_TEMPLATE_FORMAT", "sre-incident-report-v1"),
@@ -65,4 +69,28 @@ func envOrDefault(key, fallback string) string {
 		return val
 	}
 	return fallback
+}
+
+func resolveK8sAPIURL() string {
+	if val := strings.TrimSpace(os.Getenv("K8S_API_ENDPOINT")); val != "" {
+		return val
+	}
+	host := strings.TrimSpace(os.Getenv("KUBERNETES_SERVICE_HOST"))
+	port := strings.TrimSpace(os.Getenv("KUBERNETES_SERVICE_PORT"))
+	if host != "" && port != "" {
+		return fmt.Sprintf("https://%s:%s", host, port)
+	}
+	return ""
+}
+
+func resolveK8sBearerToken() string {
+	if val := strings.TrimSpace(os.Getenv("K8S_BEARER_TOKEN")); val != "" {
+		return val
+	}
+	tokenPath := envOrDefault("K8S_SA_TOKEN_PATH", "/var/run/secrets/kubernetes.io/serviceaccount/token")
+	data, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }

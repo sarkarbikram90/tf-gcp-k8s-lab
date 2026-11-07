@@ -21,6 +21,8 @@ spec:
               value: "http://barnacles-server.barnacles.svc.cluster.local:8080/api/v1/query"
             - name: PROMETHEUS_QUERY_ENDPOINT
               value: "http://prometheus-server.observability.svc.cluster.local:9090/api/v1/query"
+            - name: K8S_API_ENDPOINT
+              value: "https://kubernetes.default.svc.cluster.local:443"
             - name: RCA_TEMPLATE_FORMAT
               value: "sre-incident-report-v1"
           resources:

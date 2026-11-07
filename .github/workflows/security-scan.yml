@@ -78,3 +78,8 @@ jobs:
         run: |
           go vet ./...
           go test -v -race ./...
+
+      - name: "Run Standalone Multi-Service E2E Pipeline (order-api + sre-copilot + Markdown RCA)"
+        run: |
+          chmod +x scripts/local/kind-e2e-harness.sh
+          ./scripts/local/kind-e2e-harness.sh standalone-test
