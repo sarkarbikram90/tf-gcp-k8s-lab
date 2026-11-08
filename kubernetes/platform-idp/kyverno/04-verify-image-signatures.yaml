@@ -1,0 +1,59 @@
+# ==============================================================================
+# Kyverno Supply-Chain ClusterPolicy: Keyless Cosign Signature & SBOM Attestation
+# ==============================================================================
+# Purpose (CKS Supply Chain Security - 20%):
+#   Verifies that first-party microservice images (`ghcr.io/sarkarbikram90/*`)
+#   deployed into tenant namespaces were built and signed keylessly by GitHub
+#   Actions OIDC via Sigstore Cosign + Rekor transparency log, and carry an
+#   attached CycloneDX Software Bill of Materials (SBOM) attestation.
+# ==============================================================================
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: idp-verify-cosign-image-signatures
+  annotations:
+    policies.kyverno.io/title: Verify Keyless Sigstore Cosign Image Signatures & SBOMs
+    policies.kyverno.io/category: CKS Supply Chain Security
+    policies.kyverno.io/severity: high
+spec:
+  validationFailureAction: Audit
+  background: true
+  webhookTimeoutSeconds: 15
+  rules:
+    - name: verify-github-actions-oidc-cosign-signature
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaceSelector:
+                matchLabels:
+                  idp.k8s-lab.internal/tenant: "true"
+      verifyImages:
+        - imageReferences:
+            - "ghcr.io/sarkarbikram90/*"
+          mutateDigest: true
+          verifyDigest: true
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    issuer: "https://token.actions.githubusercontent.com"
+                    subject: "https://github.com/sarkarbikram90/tf-gcp-k8s-lab/.github/workflows/*"
+                    rekor:
+                      url: https://rekor.sigstore.dev
+          attestations:
+            - type: https://cyclonedx.org/bom
+              attestors:
+                - count: 1
+                  entries:
+                    - keyless:
+                        issuer: "https://token.actions.githubusercontent.com"
+                        subject: "https://github.com/sarkarbikram90/tf-gcp-k8s-lab/.github/workflows/*"
+                        rekor:
+                          url: https://rekor.sigstore.dev
+              conditions:
+                - all:
+                    - key: "{{ Data.metadata.component.type }}"
+                      operator: Equals
+                      value: "container"

@@ -108,10 +108,14 @@ func main() {
 		_, _ = w.Write([]byte(`{"status":"success","data":{"result":[{"metric":{"namespace":"app-order-api"},"value":[1730995200,"0.18"]}]}}`))
 	})
 
-	// Kubernetes API Warning Events
+	// Kubernetes API Warning Events & Guarded Remediation PATCH
 	mux.HandleFunc("/api/v1/namespaces/app-order-api/events", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"kind":"EventList","apiVersion":"v1","items":[{"type":"Warning","reason":"Unhealthy","message":"Readiness probe failed: HTTP 500","count":3,"involvedObject":{"kind":"Pod","name":"order-api-workload-6b7f8"}}]}`))
+	})
+	mux.HandleFunc("/apis/apps/v1/namespaces/app-order-api/deployments/order-api", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"kind":"Deployment","metadata":{"name":"order-api"}}`))
 	})
 
 	// Level 5 vLLM OpenAI-compatible chat completions
@@ -196,10 +200,11 @@ EOF
     exit 1
   fi
 
-  # Step 3: Trigger sre-copilot webhook triage
+  # Step 3: Trigger sre-copilot webhook triage with W3C traceparent
   local webhook_resp
   webhook_resp="$(curl -fsS -X POST "http://127.0.0.1:${copilot_port}/webhook" \
     -H "Content-Type: application/json" \
+    -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" \
     -d '{
       "alerts": [{
         "labels": {
@@ -221,11 +226,24 @@ EOF
     exit 1
   fi
 
+  # Step 3b: Execute guarded Kubernetes remediation (POST /incidents/inc-1/remediate)
+  local rem_resp
+  rem_resp="$(curl -fsS -X POST "http://127.0.0.1:${copilot_port}/incidents/inc-1/remediate" \
+    -H "Content-Type: application/json" \
+    -d '{"action":"auto","dry_run":true}')"
+  if echo "${rem_resp}" | grep -q '"action":"restart_deployment"'; then
+    log_ok "sre-copilot: Executed guarded K8s remediation (POST /incidents/inc-1/remediate -> restart_deployment [dry-run])"
+  else
+    log_err "sre-copilot: Unexpected remediation response: ${rem_resp}"
+    exit 1
+  fi
+
   # Step 4: Fetch the exported Markdown Post-Mortem report
   local md_report
   md_report="$(curl -fsS "http://127.0.0.1:${copilot_port}/incidents/inc-1/markdown")"
   if echo "${md_report}" | grep -q "### 3.1 Kubernetes API Warning Events" && \
-     echo "${md_report}" | grep -q "Readiness probe failed: HTTP 500"; then
+     echo "${md_report}" | grep -q "Readiness probe failed: HTTP 500" && \
+     echo "${md_report}" | grep -q "Automated Runbook Action:"; then
     log_ok "sre-copilot: Exported Markdown Post-Mortem (GET /incidents/inc-1/markdown)"
     echo "------------------------------------------------------------------------------"
     echo "${md_report}"

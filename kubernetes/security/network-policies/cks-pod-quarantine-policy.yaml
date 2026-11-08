@@ -1,0 +1,31 @@
+# ==============================================================================
+# CKS Forensic Pod Quarantine NetworkPolicy
+# ==============================================================================
+# Purpose:
+#   When Falco eBPF detects a runtime breach (e.g. shell spawned in container,
+#   /etc/shadow read, or container escape attempt) and fires a webhook to
+#   `sre-copilot`, `POST /incidents/{id}/remediate` patches the offending pod
+#   with label `security.platform.io/quarantine: isolated`.
+#
+#   Instead of deleting the compromised pod (which destroys volatile memory,
+#   open file descriptors, and unlinked binaries), this NetworkPolicy
+#   immediately severs ALL Ingress and Egress traffic (including DNS) so the
+#   attacker is contained while CKS responders capture forensic evidence via
+#   `crictl inspect` / `nsenter`.
+# ==============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cks-forensic-pod-quarantine
+  labels:
+    app.kubernetes.io/part-of: tf-gcp-k8s-lab
+    security.platform.io/control: cks-runtime-quarantine
+spec:
+  podSelector:
+    matchLabels:
+      security.platform.io/quarantine: isolated
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress: []

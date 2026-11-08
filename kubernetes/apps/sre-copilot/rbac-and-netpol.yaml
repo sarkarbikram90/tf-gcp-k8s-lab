@@ -36,6 +36,15 @@ rules:
   - apiGroups: [""]
     resources: ["pods", "events", "services", "endpoints"]
     verbs: ["get", "list", "watch"]
+  # Scoped write verbs for guarded POST /incidents/{id}/remediate actions:
+  # 1. Patch pod labels (`security.platform.io/quarantine=isolated`) on Falco CKS breach
+  # 2. Patch deployment template annotations (`kubectl.kubernetes.io/restartedAt`) on SLO breach
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

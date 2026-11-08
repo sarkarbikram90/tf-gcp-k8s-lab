@@ -1,0 +1,121 @@
+# ==============================================================================
+# Grafana Dashboards-as-Code: Golden Signals, Barnacles Spool & vLLM Economics
+# ==============================================================================
+# Purpose:
+#   Provides a declarative Grafana dashboard ConfigMap (`grafana_dashboard: "1"`)
+#   automatically discovered by the kube-prometheus-stack Grafana sidecar.
+#   Unifies 4 layers of observability in a single pane of glass:
+#     1. IDP Tenant Golden Signals (5xx Error Ratio, RPS, P95 Latency)
+#     2. Project 2 Barnacles Log Platform (Ingest RPS & Edge `.inflight` Spool)
+#     3. Level 5 vLLM Token Economics (P95 TTFT, Tokens/sec, KV-Cache %, $/1M)
+#     4. Level 7 Autonomous AIOps (`sre-copilot` RCAs & Guarded Remediations)
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-platform-sre-aiops
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/name: grafana-dashboards
+    app.kubernetes.io/part-of: tf-gcp-k8s-lab
+data:
+  platform-sre-aiops-overview.json: |
+    {
+      "title": "tf-gcp-k8s-lab — SRE Golden Signals, Barnacles & vLLM Token Economics",
+      "uid": "tf-gcp-k8s-lab-overview",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "15s",
+      "tags": ["sre", "idp", "barnacles", "vllm", "sre-copilot", "cks"],
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "IDP Tenant 5xx Error Ratio (SLO < 5%)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+          "targets": [
+            {
+              "expr": "idp:workload_http_error_ratio:rate5m",
+              "legendFormat": "{{namespace}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Barnacles Shipped Logs vs. Edge Spool Backlog (.inflight)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+          "targets": [
+            {
+              "expr": "sum by (namespace, status) (rate(order_api_barnacles_shipped_logs_total[5m]))",
+              "legendFormat": "order-api -> barnacles ({{status}})"
+            },
+            {
+              "expr": "sum by (node) (barnacles_agent_spool_inflight_files)",
+              "legendFormat": "spool backlog ({{node}})"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Level 5 vLLM P95 Time to First Token (TTFT) & KV-Cache %",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+          "targets": [
+            {
+              "expr": "vllm:time_to_first_token_seconds:p95_5m",
+              "legendFormat": "P95 TTFT (s) - {{model_name}}"
+            },
+            {
+              "expr": "vllm:gpu_cache_usage_perc:avg5m * 100",
+              "legendFormat": "KV-Cache % - {{model_name}}"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Level 5 vLLM Output Throughput (Tokens/sec) & Cost ($/1M Tokens)",
+          "type": "stat",
+          "gridPos": { "h": 6, "w": 12, "x": 0, "y": 8 },
+          "targets": [
+            {
+              "expr": "vllm:generation_tokens_per_second:rate5m",
+              "legendFormat": "Tokens/sec ({{model_name}})"
+            },
+            {
+              "expr": "vllm:estimated_cost_per_million_tokens_usd:rate5m",
+              "legendFormat": "$/1M Tokens ({{model_name}})"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "title": "Level 7 SRE Copilot — Automated RCAs, K8s Event Queries & Remediations",
+          "type": "stat",
+          "gridPos": { "h": 6, "w": 12, "x": 12, "y": 8 },
+          "targets": [
+            {
+              "expr": "sum(sre_copilot_rca_reports_total)",
+              "legendFormat": "Synthesized RCAs"
+            },
+            {
+              "expr": "sum(sre_copilot_k8s_event_queries_total)",
+              "legendFormat": "K8s Warning Event Queries"
+            },
+            {
+              "expr": "sum(sre_copilot_remediations_total)",
+              "legendFormat": "Guarded Remediations"
+            },
+            {
+              "expr": "sum(sre_copilot_markdown_exports_total)",
+              "legendFormat": "Markdown Post-Mortems"
+            }
+          ]
+        }
+      ]
+    }

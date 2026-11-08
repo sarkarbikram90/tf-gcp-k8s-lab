@@ -6,6 +6,8 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +20,8 @@ import (
 	"sync/atomic"
 	"time"
 )
+
+type traceContextKey struct{}
 
 // Config holds runtime configuration injected via Kubernetes Downward API and
 // Golden Path ConfigMaps/Secrets.
@@ -34,15 +38,16 @@ type Config struct {
 
 // Order represents a customer order in the commerce domain.
 type Order struct {
-	ID              string    `json:"id"`
-	CustomerID      string    `json:"customer_id"`
-	ItemSKU         string    `json:"item_sku"`
-	Quantity        int       `json:"quantity"`
-	TotalAmountUSD  float64   `json:"total_amount_usd"`
-	Status          string    `json:"status"`
-	AIRiskSummary   string    `json:"ai_risk_summary,omitempty"`
-	ProcessedByPod  string    `json:"processed_by_pod"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID             string    `json:"id"`
+	CustomerID     string    `json:"customer_id"`
+	ItemSKU        string    `json:"item_sku"`
+	Quantity       int       `json:"quantity"`
+	TotalAmountUSD float64   `json:"total_amount_usd"`
+	Status         string    `json:"status"`
+	AIRiskSummary  string    `json:"ai_risk_summary,omitempty"`
+	TraceID        string    `json:"trace_id,omitempty"`
+	ProcessedByPod string    `json:"processed_by_pod"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // CreateOrderRequest is the JSON payload for POST /orders.
@@ -63,6 +68,7 @@ type BarnaclesLogEvent struct {
 	Service   string            `json:"service"`
 	Namespace string            `json:"namespace"`
 	Pod       string            `json:"pod"`
+	TraceID   string            `json:"trace_id,omitempty"`
 	Message   string            `json:"message"`
 	Fields    map[string]string `json:"fields,omitempty"`
 }
@@ -237,14 +243,17 @@ func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	traceID := traceIDFromContext(r.Context())
+
 	// Support controlled 5xx injection to test Level 4 Prometheus alerts & Level 7 Argo Rollouts SLO rollback
 	if req.SimulateFailure {
-		s.emitLog("FATAL", "simulated_order_processing_failure", map[string]string{
+		s.emitLog(traceID, "FATAL", "simulated_order_processing_failure", map[string]string{
 			"customer_id": req.CustomerID,
 			"item_sku":    req.ItemSKU,
 		})
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "simulated 500 internal error for SLO canary drill",
+			"error":    "simulated 500 internal error for SLO canary drill",
+			"trace_id": traceID,
 		})
 		return
 	}
@@ -264,6 +273,7 @@ func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 		Quantity:       req.Quantity,
 		TotalAmountUSD: req.TotalAmountUSD,
 		Status:         "CONFIRMED",
+		TraceID:        traceID,
 		ProcessedByPod: s.cfg.PodName,
 		CreatedAt:      time.Now().UTC(),
 	}
@@ -276,7 +286,7 @@ func (s *Server) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 	s.orders[ord.ID] = ord
 	s.mu.Unlock()
 
-	s.emitLog("INFO", "order_created", map[string]string{
+	s.emitLog(traceID, "INFO", "order_created", map[string]string{
 		"order_id":    ord.ID,
 		"customer_id": ord.CustomerID,
 		"item_sku":    ord.ItemSKU,
@@ -315,6 +325,10 @@ func (s *Server) assessFraudViaVLLM(ctx context.Context, ord Order) string {
 		return "LOW_RISK (fallback: request build error)"
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if ord.TraceID != "" {
+		req.Header.Set("traceparent", formatTraceparent(ord.TraceID))
+		req.Header.Set("X-Trace-ID", ord.TraceID)
+	}
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -409,6 +423,13 @@ func (s *Server) instrumentMiddleware(next http.Handler) http.Handler {
 		s.inFlight.Add(1)
 		defer s.inFlight.Add(-1)
 
+		traceID := extractOrGenerateTraceID(r.Header.Get("traceparent"), r.Header.Get("X-Trace-ID"))
+		w.Header().Set("traceparent", formatTraceparent(traceID))
+		w.Header().Set("X-Trace-ID", traceID)
+
+		ctx := context.WithValue(r.Context(), traceContextKey{}, traceID)
+		r = r.WithContext(ctx)
+
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
 
@@ -428,11 +449,58 @@ func (s *Server) instrumentMiddleware(next http.Handler) http.Handler {
 				"route", route,
 				"status", rec.status,
 				"duration_ms", fmt.Sprintf("%.2f", elapsed*1000),
+				"trace_id", traceID,
 				"pod", s.cfg.PodName,
 				"namespace", s.cfg.PodNamespace,
 			)
 		}
 	})
+}
+
+func traceIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(traceContextKey{}).(string); ok && v != "" {
+		return v
+	}
+	return randomHex(16)
+}
+
+// extractOrGenerateTraceID parses a W3C traceparent header (`00-<32-hex-trace-id>-<16-hex-span-id>-01`)
+// or X-Trace-ID fallback, generating a new 16-byte (32-hex) trace ID if absent or malformed.
+func extractOrGenerateTraceID(traceparent, xTraceID string) string {
+	parts := strings.Split(strings.TrimSpace(traceparent), "-")
+	if len(parts) == 4 && len(parts[1]) == 32 && isLowerHex(parts[1]) && parts[1] != strings.Repeat("0", 32) {
+		return parts[1]
+	}
+	cleaned := strings.ToLower(strings.TrimSpace(xTraceID))
+	if len(cleaned) == 32 && isLowerHex(cleaned) && cleaned != strings.Repeat("0", 32) {
+		return cleaned
+	}
+	return randomHex(16)
+}
+
+func formatTraceparent(traceID string) string {
+	if len(traceID) != 32 || !isLowerHex(traceID) {
+		traceID = randomHex(16)
+	}
+	return fmt.Sprintf("00-%s-%s-01", traceID, randomHex(8))
+}
+
+func isLowerHex(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+func randomHex(numBytes int) string {
+	b := make([]byte, numBytes)
+	if _, err := rand.Read(b); err != nil {
+		return strings.Repeat("a", numBytes*2)
+	}
+	return hex.EncodeToString(b)
 }
 
 func normalizeRoute(path string) string {
@@ -452,7 +520,7 @@ func normalizeRoute(path string) string {
 	}
 }
 
-func (s *Server) emitLog(level, msg string, fields map[string]string) {
+func (s *Server) emitLog(traceID, level, msg string, fields map[string]string) {
 	if s.closed.Load() {
 		return
 	}
@@ -462,6 +530,7 @@ func (s *Server) emitLog(level, msg string, fields map[string]string) {
 		Service:   "order-api",
 		Namespace: s.cfg.PodNamespace,
 		Pod:       s.cfg.PodName,
+		TraceID:   traceID,
 		Message:   msg,
 		Fields:    fields,
 	}
@@ -490,6 +559,10 @@ func (s *Server) barnaclesLogWorker() {
 			continue
 		}
 		req.Header.Set("Content-Type", "application/json")
+		if evt.TraceID != "" {
+			req.Header.Set("traceparent", formatTraceparent(evt.TraceID))
+			req.Header.Set("X-Trace-ID", evt.TraceID)
+		}
 		resp, err := s.httpClient.Do(req)
 		if err != nil {
 			s.shippedLogsErr.Add(1)

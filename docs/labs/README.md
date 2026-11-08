@@ -18,7 +18,7 @@ Never start an investigation by deleting a failing Pod. Before running a single 
 
 ---
 
-## 2. The 14-Scenario SRE Troubleshooting Matrix (Core Kubernetes + Barnacles + vLLM + IDP)
+## 2. The 15-Scenario SRE & CKS Troubleshooting Matrix (Core Kubernetes + Barnacles + vLLM + IDP + CKS)
 
 Use the automated lab runner ([`scripts/troubleshooting/sre-lab-runner.sh`](../../scripts/troubleshooting/sre-lab-runner.sh)) to inject, verify, or run blind timed drills (`random`) across the scenarios below:
 
@@ -38,6 +38,7 @@ Use the automated lab runner ([`scripts/troubleshooting/sre-lab-runner.sh`](../.
 | **12** | **`vLLM` Queue Saturation & Readiness Shedding** | Level 5 (`vLLM` Continuous Batching & Probes) | AI Inference SRE & Token Economics | `./scripts/troubleshooting/sre-lab-runner.sh inject 12` | [Lab 12](lab-12-vllm-queue-saturation.md) |
 | **13** | **IDP Governance & Kyverno Hygiene Violations** | Level 6 (Kyverno Policies & Restricted PSS) | Platform Engineering & Policy-as-Code | `./scripts/troubleshooting/sre-lab-runner.sh inject 13` | [Lab 13](lab-13-idp-kyverno-admission.md) |
 | **14** | **`ExternalSecret` & Secret Key Mapping Drift** | Level 6 (External Secrets Operator & GCP SM) | Zero-Trust Cloud Secrets & Config | `./scripts/troubleshooting/sre-lab-runner.sh inject 14` | [Lab 14](lab-14-external-secret-sync.md) |
+| **15** | **CKS Runtime Breach & Forensic Pod Quarantine** | Level 7 (`Falco` eBPF Syscall & Quarantine NetPol) | CKS Runtime Security (20%) & Forensics | `./scripts/troubleshooting/sre-lab-runner.sh inject 15` | [Lab 15](lab-15-cks-falco-runtime-breach.md) |
 
 ---
 

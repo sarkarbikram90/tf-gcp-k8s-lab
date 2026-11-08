@@ -1,0 +1,67 @@
+# ==============================================================================
+# Alertmanager Closed-Loop Webhook Routing -> Level 7 `sre-copilot`
+# ==============================================================================
+# Purpose:
+#   Routes firing Prometheus alerts (Level 4 Control Plane/Node alerts, Project 2
+#   Barnacles spool backlog alerts, Level 5 vLLM queue saturation alerts, and
+#   Level 6 IDP Golden Signal SLO breaches) directly to the in-cluster
+#   `sre-copilot` webhook (`http://sre-copilot.sre-copilot.svc.cluster.local:8080/webhook`)
+#   for automated telemetry correlation, vLLM RCA synthesis, and Markdown export.
+# ==============================================================================
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: sre-copilot-aiops-routing
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager-sre-copilot
+    app.kubernetes.io/part-of: tf-gcp-k8s-lab
+    role: alert-routing
+spec:
+  route:
+    receiver: sre-copilot-webhook
+    groupBy:
+      - namespace
+      - alertname
+      - severity
+    groupWait: 10s
+    groupInterval: 1m
+    repeatInterval: 2h
+    routes:
+      - receiver: sre-copilot-webhook
+        matchers:
+          - name: severity
+            matchType: =~
+            value: "critical|warning"
+        continue: true
+  receivers:
+    - name: sre-copilot-webhook
+      webhookConfigs:
+        - url: "http://sre-copilot.sre-copilot.svc.cluster.local:8080/webhook"
+          sendResolved: true
+          maxAlerts: 10
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-sre-copilot-config
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/part-of: tf-gcp-k8s-lab
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: "sre-copilot-aiops"
+      group_by: ["namespace", "alertname", "severity"]
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 2h
+    receivers:
+      - name: "sre-copilot-aiops"
+        webhook_configs:
+          - url: "http://sre-copilot.sre-copilot.svc.cluster.local:8080/webhook"
+            send_resolved: true
+            max_alerts: 10

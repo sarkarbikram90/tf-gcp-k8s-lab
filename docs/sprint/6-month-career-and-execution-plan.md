@@ -52,7 +52,7 @@ Maintain **18–21 hours/week** (~2.5 to 3 hours/day on weekdays, 4 hours/day on
 | **1. Kubernetes & Platform Engineering** | **60%** | `~11–12 hrs` | Cluster internals, `kubeadm` HA/DR, SRE fault drills (`sre-lab-runner.sh`), `Argo CD` GitOps, Kustomize Golden Paths, `vLLM` serving. |
 | **2. Cloud Infrastructure, Terraform & Networking** | **20%** | `~3.5–4 hrs` | GCP VPC/NAT/LB/IAM Terraform modules, Linux `netns`/`veth`/`iptables`/VXLAN packet tracing, `Gateway` API. |
 | **3. Cloud-Native Security (`CKS` Track)** | **15%** | `~2.5–3 hrs` | RBAC, Restricted PSS, `NetworkPolicies`, KMS `etcd` encryption, `Kyverno`, `Trivy`, API audit logging, `Falco`. |
-| **4. Go / Python & Shell Automation** | **5%** | `~1–1.5 hrs` | Reading/extending `Barnacles` (Go log spooler), `sre-copilot` (Python AIOps webhook), and bash automation scripts. |
+| **4. Go / Python & Shell Automation** | **5%** | `~1–1.5 hrs` | Reading/extending `Barnacles` (Go log spooler), `order-api` & `sre-copilot` (Go AIOps/remediation microservices), and bash automation scripts. |
 
 ---
 
@@ -145,11 +145,11 @@ flowchart LR
 - **Technical Curriculum:**
   1. **Weeks 1–2 (Mar 1 – Mar 15): Level 5 `vLLM` Inference Platform**
      - Deploy the CPU-first and NVIDIA L4 Spot GPU inference stacks ([`kubernetes/ai-inference/`](../../kubernetes/ai-inference/)) alongside the optional L4 GPU worker pool in Terraform ([`terraform/modules/compute/main.tf`](../../terraform/modules/compute/main.tf)).
-     - Configure the NGINX streaming LLM Gateway (`proxy_buffering off` for SSE token streaming) and `Gateway` API 90/10 canary traffic split ([`06-gateway-api-canary.yaml`](../../kubernetes/ai-inference/06-gateway-api-canary.yaml)).
+     - Configure the NGINX streaming LLM Gateway (`proxy_buffering off` for SSE token streaming) and `Gateway` API 90/10 canary traffic split ([`06-gateway-api-canary-split.yaml`](../../kubernetes/ai-inference/06-gateway-api-canary-split.yaml)).
   2. **Weeks 3–4 (Mar 16 – Mar 31): Token Economics, Saturation & Level 7 Autonomous AIOps**
      - Run [`scripts/ai-inference/benchmark-inference.sh`](../../scripts/ai-inference/benchmark-inference.sh) to benchmark **P50/P95 Time to First Token (`TTFT`)**, **Inter-Token Latency (`ITL`)**, **Tokens/sec**, **KV-Cache Utilization**, and **Cost per 1M Output Tokens (`$/1M`)**.
-     - Master **Lab 12 (`vLLM` Queue Saturation & Readiness Probe Shedding)** ([`docs/labs/lab-12-vllm-queue-saturation.md`](../labs/lab-12-vllm-queue-saturation.md)).
-     - Deploy the **Level 7 Autonomous SRE Copilot** ([`kubernetes/apps/sre-copilot/`](../../kubernetes/apps/sre-copilot/)) and Argo Rollouts SLO-gated canary delivery ([`kubernetes/golden-paths/bricks/progressive-canary/`](../../kubernetes/golden-paths/bricks/progressive-canary/)).
+     - Master **Lab 12 (`vLLM` Queue Saturation & Readiness Probe Shedding)** ([`docs/labs/lab-12-vllm-queue-saturation.md`](../labs/lab-12-vllm-queue-saturation.md)) and **Lab 15 (`CKS Falco Runtime Breach & Forensic Pod Quarantine`)** ([`docs/labs/lab-15-cks-falco-runtime-breach.md`](../labs/lab-15-cks-falco-runtime-breach.md)).
+     - Deploy the **Level 7 Autonomous SRE Copilot** ([`kubernetes/apps/sre-copilot/`](../../kubernetes/apps/sre-copilot/)) and Argo Rollouts SLO-gated canary delivery ([`kubernetes/golden-paths/components/progressive-canary/`](../../kubernetes/golden-paths/components/progressive-canary/)).
 - **Job Search Deliverable (Wave 3 — March):**
   - Target high-compensation **AI Infrastructure Engineer**, **ML Platform SRE**, and **Senior Platform Engineer** roles at AI-native companies and global GCCs.
 

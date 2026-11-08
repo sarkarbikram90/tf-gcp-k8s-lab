@@ -2,13 +2,13 @@
 # ==============================================================================
 # Script: sre-lab-runner.sh
 # Purpose: Automated Failure-Injection, Verification & Blind Timed Drill Harness
-#          for the 14-Scenario Kubernetes, Barnacles, vLLM & IDP SRE Laboratory.
+#          for the 15-Scenario Kubernetes, Barnacles, vLLM, IDP & CKS Laboratory.
 # Usage:
 #   ./scripts/troubleshooting/sre-lab-runner.sh list
-#   ./scripts/troubleshooting/sre-lab-runner.sh inject <01..14> [--allow-node-fault]
+#   ./scripts/troubleshooting/sre-lab-runner.sh inject <01..15> [--allow-node-fault]
 #   ./scripts/troubleshooting/sre-lab-runner.sh random
 #   ./scripts/troubleshooting/sre-lab-runner.sh status
-#   ./scripts/troubleshooting/sre-lab-runner.sh verify <01..14|current>
+#   ./scripts/troubleshooting/sre-lab-runner.sh verify <01..15|current>
 #   ./scripts/troubleshooting/sre-lab-runner.sh reset [all]
 # ==============================================================================
 
@@ -45,6 +45,7 @@ normalize_id() {
     12)   echo "12" ;;
     13)   echo "13" ;;
     14)   echo "14" ;;
+    15)   echo "15" ;;
     current) echo "current" ;;
     all)  echo "all" ;;
     *)    echo "" ;;
@@ -94,10 +95,10 @@ Kubernetes SRE Troubleshooting Lab Runner (tf-gcp-k8s-lab)
 
 Usage:
   ./scripts/troubleshooting/sre-lab-runner.sh list
-  ./scripts/troubleshooting/sre-lab-runner.sh inject <01..14> [--allow-node-fault]
+  ./scripts/troubleshooting/sre-lab-runner.sh inject <01..15> [--allow-node-fault]
   ./scripts/troubleshooting/sre-lab-runner.sh random
   ./scripts/troubleshooting/sre-lab-runner.sh status
-  ./scripts/troubleshooting/sre-lab-runner.sh verify <01..14|current>
+  ./scripts/troubleshooting/sre-lab-runner.sh verify <01..15|current>
   ./scripts/troubleshooting/sre-lab-runner.sh reset [all]
 
 Scenarios (Levels 1-4 Core Kubernetes):
@@ -112,11 +113,12 @@ Scenarios (Levels 1-4 Core Kubernetes):
   09  Storage Provisioning: PVC Pending, StorageClass Mismatch & Persistence
   10  Stuck Deployment Rollout: Failing Readiness Probe & PDB Deadlock
 
-Scenarios (Project 2 Barnacles, Level 5 vLLM & Level 6 IDP Platform):
+Scenarios (Project 2 Barnacles, Level 5 vLLM, Level 6 IDP & Level 7 CKS Security):
   11  Barnacles Log Platform: Network Partition & Edge Spool Drain Recovery
   12  Level 5 AI Inference: vLLM Queue Saturation & Readiness Probe Shedding
   13  Level 6 IDP Governance: Kyverno Hygiene & Restricted PSS Violations
   14  Level 6 Cloud Secrets: ExternalSecret & Secret Key Mapping Drift
+  15  Level 7 CKS Runtime Security: Falco Syscall Breach & Forensic Pod Quarantine
 EOF
 }
 
@@ -957,6 +959,58 @@ EOF
   log_info "See Runbook: docs/labs/lab-14-external-secret-sync.md"
 }
 
+inject_15() {
+  ensure_namespace
+  record_state "15" "${1:-explicit}"
+  kubectl apply -n "${LAB_NAMESPACE}" -f - <<'EOF'
+apiVersion: v1
+kind: Pod
+metadata:
+  name: compromised-debug-pod
+  labels:
+    app: order-worker
+    sre-lab: "15"
+    # Fault 1: Pod triggered a Falco CKS_ALERT [SensitiveFileRead] (/etc/shadow)
+    # but has NOT yet been quarantined with 'security.platform.io/quarantine: isolated'
+    security.platform.io/quarantine: unisolated
+spec:
+  containers:
+    - name: worker
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          echo "CKS_ALERT [SensitiveFileRead] Sensitive credential or PKI file read (file=/etc/shadow pod=compromised-debug-pod ns=sre-lab)"
+          cat /etc/shadow >/dev/null 2>&1 || true
+          sleep 3600
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cks-quarantine-isolation
+  labels:
+    sre-lab: "15"
+spec:
+  # Fault 2: Selector typo ('wrong-quarantine-label' instead of 'isolated') and
+  # missing Egress policyType (allows data exfiltration from compromised pod)
+  podSelector:
+    matchLabels:
+      security.platform.io/quarantine: wrong-quarantine-label
+  policyTypes:
+    - Ingress
+  ingress: []
+EOF
+  log_info "See Runbook: docs/labs/lab-15-cks-falco-runtime-breach.md"
+}
+
 # ------------------------------------------------------------------------------
 # Verification Functions (01 - 10)
 # ------------------------------------------------------------------------------
@@ -1099,6 +1153,31 @@ verify_14() {
   log_ok "Lab 14 Verified: 'order-worker-idp' Secret reference & key mapping aligned with synced ExternalSecret ('gcp-sm-order-api-synced')!"
 }
 
+verify_15() {
+  local phase pod_quarantine netpol_selector netpol_types
+  phase="$(kubectl get pod compromised-debug-pod -n "${LAB_NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")"
+  if [[ "${phase}" != "Running" ]]; then
+    log_err "Pod 'compromised-debug-pod' is '${phase:-Missing}' (do NOT delete the pod; keep it Running for CKS memory/filesystem forensics while isolating its network!)."
+    exit 1
+  fi
+  pod_quarantine="$(kubectl get pod compromised-debug-pod -n "${LAB_NAMESPACE}" -o jsonpath='{.metadata.labels.security\.platform\.io/quarantine}')"
+  if [[ "${pod_quarantine}" != "isolated" ]]; then
+    log_err "Pod 'compromised-debug-pod' label 'security.platform.io/quarantine' is '${pod_quarantine}' (expected 'isolated')."
+    exit 1
+  fi
+  netpol_selector="$(kubectl get networkpolicy cks-quarantine-isolation -n "${LAB_NAMESPACE}" -o jsonpath='{.spec.podSelector.matchLabels.security\.platform\.io/quarantine}')"
+  if [[ "${netpol_selector}" != "isolated" ]]; then
+    log_err "NetworkPolicy 'cks-quarantine-isolation' podSelector targets '${netpol_selector}' (expected 'isolated')."
+    exit 1
+  fi
+  netpol_types="$(kubectl get networkpolicy cks-quarantine-isolation -n "${LAB_NAMESPACE}" -o jsonpath='{.spec.policyTypes[*]}')"
+  if [[ "${netpol_types}" != *"Ingress"* ]] || [[ "${netpol_types}" != *"Egress"* ]]; then
+    log_err "NetworkPolicy 'cks-quarantine-isolation' policyTypes='${netpol_types}' (must enforce both 'Ingress' and 'Egress' isolation)."
+    exit 1
+  fi
+  log_ok "Lab 15 Verified: 'compromised-debug-pod' is forensically preserved (Running) and completely isolated under zero-trust Ingress/Egress quarantine!"
+}
+
 # ------------------------------------------------------------------------------
 # Reset / Teardown
 # ------------------------------------------------------------------------------
@@ -1134,7 +1213,7 @@ case "${ACTION}" in
   inject)
     LAB_ID="$(normalize_id "${TARGET}")"
     if [[ -z "${LAB_ID}" ]] || [[ "${LAB_ID}" == "current" ]] || [[ "${LAB_ID}" == "all" ]]; then
-      log_err "Please specify a valid lab ID (01..14)."
+      log_err "Please specify a valid lab ID (01..15)."
       usage
       exit 1
     fi
@@ -1145,7 +1224,7 @@ case "${ACTION}" in
     ;;
 
   random)
-    CANDIDATES=("05" "06" "07" "08" "09" "10" "11" "12" "13" "14")
+    CANDIDATES=("05" "06" "07" "08" "09" "10" "11" "12" "13" "14" "15")
     RANDOM_INDEX=$(( RANDOM % ${#CANDIDATES[@]} ))
     CHOSEN_LAB="${CANDIDATES[$RANDOM_INDEX]}"
     log_warn "=================================================================="
@@ -1183,7 +1262,7 @@ case "${ACTION}" in
       LAB_ID="$(get_active_lab)"
     fi
     if [[ -z "${LAB_ID}" ]]; then
-      log_err "Could not determine active lab ID. Specify explicitly: verify <01..14>"
+      log_err "Could not determine active lab ID. Specify explicitly: verify <01..15>"
       exit 1
     fi
     log_info "Verifying remediation for Lab ${LAB_ID}..."

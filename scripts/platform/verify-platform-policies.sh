@@ -97,6 +97,19 @@ for app_dir in "${REPO_ROOT}"/kubernetes/apps/*/; do
   fi
 done
 
+# 3. Verify CKS Supply-Chain, Quarantine & Observability Platform Manifests
+for platform_manifest in \
+  "kubernetes/platform-idp/kyverno/04-verify-image-signatures.yaml" \
+  "kubernetes/security/network-policies/cks-pod-quarantine-policy.yaml" \
+  "kubernetes/observability/04-alertmanager-sre-copilot-webhook.yaml" \
+  "kubernetes/observability/05-grafana-dashboards-configmap.yaml"; do
+  if [[ -s "${REPO_ROOT}/${platform_manifest}" ]] && grep -q "^apiVersion:" "${REPO_ROOT}/${platform_manifest}"; then
+    log_ok "Verified platform security/observability manifest: ${platform_manifest}"
+  else
+    log_fail "Missing or invalid platform manifest: ${platform_manifest}"
+  fi
+done
+
 echo "------------------------------------------------------------------------------"
 echo " Verification Summary: ${PASS_COUNT} passed, ${FAIL_COUNT} failed"
 echo "=============================================================================="

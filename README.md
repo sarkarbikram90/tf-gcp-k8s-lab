@@ -376,21 +376,23 @@ sudo ./scripts/operations/rolling-upgrade.sh 1.31.1-1.1 control-plane
 See the complete [Kubernetes Rolling Upgrade Runbook](docs/operations/cluster-upgrades.md).
 
 ### 3. Deploy Observability Stack
-Deploy Prometheus alerts and node metrics collection:
+Deploy Prometheus alerts, node metrics collection, Alertmanager `sre-copilot` webhook routing, and Grafana dashboards-as-code:
 
 ```bash
 kubectl apply -f kubernetes/observability/01-namespace.yaml
 kubectl apply -f kubernetes/observability/02-prometheus-alerts.yaml
 kubectl apply -f kubernetes/observability/03-node-exporter-daemonset.yaml
+kubectl apply -f kubernetes/observability/04-alertmanager-sre-copilot-webhook.yaml
+kubectl apply -f kubernetes/observability/05-grafana-dashboards-configmap.yaml
 ```
 
-### 4. Hands-on SRE Troubleshooting Labs (14-Scenario Suite & Automated Fault Injector)
+### 4. Hands-on SRE Troubleshooting Labs (15-Scenario Suite & Automated Fault Injector)
 
-Practice diagnosing and resolving real-world Kubernetes, `Barnacles`, `vLLM`, and IDP failure modes from first principles using the **[SRE Troubleshooting Playbook](docs/labs/README.md)** and automated fault-injection harness ([`scripts/troubleshooting/sre-lab-runner.sh`](scripts/troubleshooting/sre-lab-runner.sh)):
+Practice diagnosing and resolving real-world Kubernetes, `Barnacles`, `vLLM`, IDP, and CKS runtime security failure modes from first principles using the **[SRE Troubleshooting Playbook](docs/labs/README.md)** and automated fault-injection harness ([`scripts/troubleshooting/sre-lab-runner.sh`](scripts/troubleshooting/sre-lab-runner.sh)):
 
 ```bash
-# Inject a specific failure scenario (01 through 14)
-./scripts/troubleshooting/sre-lab-runner.sh inject 11
+# Inject a specific failure scenario (01 through 15)
+./scripts/troubleshooting/sre-lab-runner.sh inject 15
 
 # Or launch a blind 25-minute on-call drill (random mystery failure)
 ./scripts/troubleshooting/sre-lab-runner.sh random
@@ -416,6 +418,7 @@ Practice diagnosing and resolving real-world Kubernetes, `Barnacles`, `vLLM`, an
 - **[Lab 12: `vLLM` Queue Saturation & Readiness Probe Shedding](docs/labs/lab-12-vllm-queue-saturation.md)**: Restore `vLLM` continuous batching (`MAX_NUM_SEQS`) and recover zero-endpoint `503` gateway outages.
 - **[Lab 13: IDP Governance & Kyverno Hygiene Violations](docs/labs/lab-13-idp-kyverno-admission.md)**: Remediate a rogue workload violating `:latest` image blocks, FinOps labels, and `restricted` PSS.
 - **[Lab 14: `ExternalSecret` & Secret Key Mapping Drift](docs/labs/lab-14-external-secret-sync.md)**: Resolve `CreateContainerConfigError` caused by GCP Secret Manager / Kubernetes `Secret` key drift.
+- **[Lab 15: CKS Runtime Syscall Breach & Forensic Pod Quarantine](docs/labs/lab-15-cks-falco-runtime-breach.md)**: Isolate a compromised container detected by `Falco` eBPF (`security.platform.io/quarantine=isolated`) under a zero-trust Ingress/Egress quarantine `NetworkPolicy` while preserving volatile forensic state.
 - **[SRE Incident Report Template](docs/labs/incident-report-template.md)**: Standardized post-mortem template for documenting symptoms, hypotheses, evidence, root cause, and preventive actions.
 
 ---

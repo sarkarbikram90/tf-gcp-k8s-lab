@@ -8,8 +8,10 @@ package copilot
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,6 +26,24 @@ import (
 	"sync/atomic"
 	"time"
 )
+
+type traceContextKey struct{}
+
+// RemediationRequest defines the JSON payload for POST /incidents/{id}/remediate.
+type RemediationRequest struct {
+	Action string `json:"action,omitempty"`  // "auto", "quarantine_pod", or "restart_deployment"
+	DryRun bool   `json:"dry_run,omitempty"` // when true, appends ?dryRun=All to K8s API PATCH
+}
+
+// RemediationRecord captures the audit trail of an automated or dry-run K8s remediation.
+type RemediationRecord struct {
+	Action      string    `json:"action"`
+	Mode        string    `json:"mode"` // "dry-run" or "enforced"
+	Target      string    `json:"target"`
+	Status      string    `json:"status"` // "applied", "simulated", or "skipped"
+	K8sResponse string    `json:"k8s_response"`
+	ExecutedAt  time.Time `json:"executed_at"`
+}
 
 // Config holds runtime endpoints injected by the Level 6/7 Golden Path.
 type Config struct {
@@ -42,21 +62,24 @@ type Config struct {
 
 // IncidentReport represents a synthesized SRE RCA report stored by sre-copilot.
 type IncidentReport struct {
-	ID                  string            `json:"id"`
-	Source              string            `json:"source"` // "alertmanager", "falco-cks", or "custom-webhook"
-	Summary             string            `json:"summary"`
-	Severity            string            `json:"severity"`
-	Labels              map[string]string `json:"labels,omitempty"`
-	CorrelatedLogs      string            `json:"correlated_barnacles_logs"`
-	CorrelatedMetrics   string            `json:"correlated_prometheus_snapshot"`
-	CorrelatedK8sEvents string            `json:"correlated_k8s_events"`
-	SynthesizedRCA      string            `json:"synthesized_rca"`
-	TemplateFormat      string            `json:"template_format"`
-	AnalyzedByPod       string            `json:"analyzed_by_pod"`
-	CreatedAt           time.Time         `json:"created_at"`
+	ID                  string             `json:"id"`
+	TraceID             string             `json:"trace_id,omitempty"`
+	Source              string             `json:"source"` // "alertmanager", "falco-cks", or "custom-webhook"
+	Summary             string             `json:"summary"`
+	Severity            string             `json:"severity"`
+	Labels              map[string]string  `json:"labels,omitempty"`
+	CorrelatedLogs      string             `json:"correlated_barnacles_logs"`
+	CorrelatedMetrics   string             `json:"correlated_prometheus_snapshot"`
+	CorrelatedK8sEvents string             `json:"correlated_k8s_events"`
+	SynthesizedRCA      string             `json:"synthesized_rca"`
+	Remediation         *RemediationRecord `json:"remediation,omitempty"`
+	TemplateFormat      string             `json:"template_format"`
+	AnalyzedByPod       string             `json:"analyzed_by_pod"`
+	CreatedAt           time.Time          `json:"created_at"`
 }
 
-// Server manages webhook triage, concurrent evidence gathering, Markdown RCA export, and Prometheus metrics.
+// Server manages webhook triage, concurrent evidence gathering, Markdown RCA export,
+// guarded Kubernetes remediation, and Prometheus metrics.
 type Server struct {
 	cfg        Config
 	logger     *slog.Logger
@@ -67,10 +90,11 @@ type Server struct {
 	mu        sync.RWMutex
 	incidents []IncidentReport
 
-	webhooksReceived atomic.Uint64
-	rcaGenerated     atomic.Uint64
-	k8sEventQueries  atomic.Uint64
-	markdownExports  atomic.Uint64
+	webhooksReceived     atomic.Uint64
+	rcaGenerated         atomic.Uint64
+	k8sEventQueries      atomic.Uint64
+	markdownExports      atomic.Uint64
+	remediationsExecuted atomic.Uint64
 }
 
 // New initializes the sre-copilot Server.
@@ -123,7 +147,7 @@ func (s *Server) SetReady(ready bool) {
 	s.ready.Store(ready)
 }
 
-// Handler returns the HTTP router for sre-copilot.
+// Handler returns the HTTP router for sre-copilot wrapped with W3C traceparent propagation.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
@@ -133,7 +157,69 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /incidents", s.handleListIncidents)
 	mux.HandleFunc("GET /incidents/{id}", s.handleGetIncident)
 	mux.HandleFunc("GET /incidents/{id}/markdown", s.handleGetIncidentMarkdown)
-	return mux
+	mux.HandleFunc("POST /incidents/{id}/remediate", s.handleRemediateIncident)
+	return s.traceMiddleware(mux)
+}
+
+func (s *Server) traceMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		traceID := extractOrGenerateTraceID(r.Header.Get("traceparent"), r.Header.Get("X-Trace-ID"))
+		w.Header().Set("traceparent", formatTraceparent(traceID))
+		w.Header().Set("X-Trace-ID", traceID)
+		ctx := context.WithValue(r.Context(), traceContextKey{}, traceID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func traceIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(traceContextKey{}).(string); ok && v != "" {
+		return v
+	}
+	return randomHex(16)
+}
+
+func attachOutboundTraceHeaders(ctx context.Context, req *http.Request) {
+	if traceID := traceIDFromContext(ctx); traceID != "" {
+		req.Header.Set("traceparent", formatTraceparent(traceID))
+		req.Header.Set("X-Trace-ID", traceID)
+	}
+}
+
+func extractOrGenerateTraceID(traceparent, xTraceID string) string {
+	parts := strings.Split(strings.TrimSpace(traceparent), "-")
+	if len(parts) == 4 && len(parts[1]) == 32 && isLowerHex(parts[1]) && parts[1] != strings.Repeat("0", 32) {
+		return parts[1]
+	}
+	cleaned := strings.ToLower(strings.TrimSpace(xTraceID))
+	if len(cleaned) == 32 && isLowerHex(cleaned) && cleaned != strings.Repeat("0", 32) {
+		return cleaned
+	}
+	return randomHex(16)
+}
+
+func formatTraceparent(traceID string) string {
+	if len(traceID) != 32 || !isLowerHex(traceID) {
+		traceID = randomHex(16)
+	}
+	return fmt.Sprintf("00-%s-%s-01", traceID, randomHex(8))
+}
+
+func isLowerHex(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+func randomHex(numBytes int) string {
+	b := make([]byte, numBytes)
+	if _, err := rand.Read(b); err != nil {
+		return strings.Repeat("b", numBytes*2)
+	}
+	return hex.EncodeToString(b)
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
@@ -245,8 +331,10 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	s.rcaGenerated.Add(1)
 
 	id := fmt.Sprintf("inc-%d", s.seq.Add(1))
+	traceID := traceIDFromContext(r.Context())
 	report := IncidentReport{
 		ID:                  id,
+		TraceID:             traceID,
 		Source:              source,
 		Summary:             summary,
 		Severity:            severity,
@@ -266,12 +354,215 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	s.logger.Info("incident_rca_synthesized",
 		"incident_id", report.ID,
+		"trace_id", report.TraceID,
 		"source", report.Source,
 		"severity", report.Severity,
 		"summary", report.Summary,
 	)
 
 	writeJSON(w, http.StatusAccepted, report)
+}
+
+// handleRemediateIncident executes a policy-gated Kubernetes remediation action
+// for an existing incident (e.g., CKS Pod network quarantine via label patch or
+// rolling Deployment restart via annotation patch), supporting ?dryRun=All mode.
+func (s *Server) handleRemediateIncident(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	inc, ok := s.findIncident(id)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": fmt.Sprintf("incident %q not found", id),
+		})
+		return
+	}
+
+	var req RemediationRequest
+	if r.Body != nil {
+		_ = json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req)
+	}
+
+	action := strings.ToLower(strings.TrimSpace(req.Action))
+	if action == "" || action == "auto" {
+		if inc.Source == "falco-cks" {
+			action = "quarantine_pod"
+		} else {
+			action = "restart_deployment"
+		}
+	}
+
+	if action != "quarantine_pod" && action != "restart_deployment" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("unsupported remediation action %q (supported: auto, quarantine_pod, restart_deployment)", action),
+		})
+		return
+	}
+
+	rec := s.executeK8sRemediation(r.Context(), inc, action, req.DryRun)
+	s.remediationsExecuted.Add(1)
+
+	s.mu.Lock()
+	for i := range s.incidents {
+		if s.incidents[i].ID == id {
+			s.incidents[i].Remediation = &rec
+			inc = s.incidents[i]
+			break
+		}
+	}
+	s.mu.Unlock()
+
+	s.logger.Info("incident_remediation_executed",
+		"incident_id", inc.ID,
+		"action", rec.Action,
+		"mode", rec.Mode,
+		"target", rec.Target,
+		"status", rec.Status,
+	)
+
+	writeJSON(w, http.StatusOK, inc)
+}
+
+func (s *Server) executeK8sRemediation(ctx context.Context, inc IncidentReport, action string, dryRun bool) RemediationRecord {
+	now := time.Now().UTC()
+	mode := "enforced"
+	if dryRun {
+		mode = "dry-run"
+	}
+
+	ns := inc.Labels["namespace"]
+	if ns == "" {
+		ns = "default"
+	}
+
+	var (
+		targetRef string
+		apiPath   string
+		patchDoc  map[string]any
+	)
+
+	switch action {
+	case "quarantine_pod":
+		pod := inc.Labels["pod"]
+		if pod == "" {
+			pod = "unknown-pod"
+		}
+		targetRef = fmt.Sprintf("Pod/%s/%s", ns, pod)
+		apiPath = fmt.Sprintf("/api/v1/namespaces/%s/pods/%s", url.PathEscape(ns), url.PathEscape(pod))
+		patchDoc = map[string]any{
+			"metadata": map[string]any{
+				"labels": map[string]string{
+					"security.platform.io/quarantine": "isolated",
+				},
+				"annotations": map[string]string{
+					"sre-copilot.platform.io/quarantined-incident": inc.ID,
+					"sre-copilot.platform.io/quarantined-at":       now.Format(time.RFC3339),
+				},
+			},
+		}
+
+	default: // "restart_deployment"
+		deploy := resolveDeploymentName(inc.Labels, ns)
+		targetRef = fmt.Sprintf("Deployment/%s/%s", ns, deploy)
+		apiPath = fmt.Sprintf("/apis/apps/v1/namespaces/%s/deployments/%s", url.PathEscape(ns), url.PathEscape(deploy))
+		patchDoc = map[string]any{
+			"spec": map[string]any{
+				"template": map[string]any{
+					"metadata": map[string]any{
+						"annotations": map[string]string{
+							"kubectl.kubernetes.io/restartedAt":           now.Format(time.RFC3339),
+							"sre-copilot.platform.io/remediated-incident": inc.ID,
+						},
+					},
+				},
+			},
+		}
+	}
+
+	if s.cfg.K8sAPIURL == "" {
+		return RemediationRecord{
+			Action:      action,
+			Mode:        mode,
+			Target:      targetRef,
+			Status:      "simulated",
+			K8sResponse: "k8s_api_endpoint_not_configured",
+			ExecutedAt:  now,
+		}
+	}
+
+	base := strings.TrimRight(s.cfg.K8sAPIURL, "/")
+	fullURL := base + apiPath
+	if dryRun {
+		fullURL += "?dryRun=All"
+	}
+
+	rawPatch, _ := json.Marshal(patchDoc)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, fullURL, bytes.NewReader(rawPatch))
+	if err != nil {
+		return RemediationRecord{
+			Action:      action,
+			Mode:        mode,
+			Target:      targetRef,
+			Status:      "skipped",
+			K8sResponse: "k8s_patch_request_build_error",
+			ExecutedAt:  now,
+		}
+	}
+	req.Header.Set("Content-Type", "application/strategic-merge-patch+json")
+	req.Header.Set("Accept", "application/json")
+	if s.cfg.K8sBearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.cfg.K8sBearerToken)
+	}
+	attachOutboundTraceHeaders(ctx, req)
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return RemediationRecord{
+			Action:      action,
+			Mode:        mode,
+			Target:      targetRef,
+			Status:      "simulated",
+			K8sResponse: "k8s_api_unreachable_fallback",
+			ExecutedAt:  now,
+		}
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+
+	statusLabel := "applied"
+	if dryRun {
+		statusLabel = "simulated"
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		statusLabel = "skipped"
+	}
+
+	return RemediationRecord{
+		Action:      action,
+		Mode:        mode,
+		Target:      targetRef,
+		Status:      statusLabel,
+		K8sResponse: fmt.Sprintf("HTTP %d", resp.StatusCode),
+		ExecutedAt:  now,
+	}
+}
+
+func resolveDeploymentName(labels map[string]string, namespace string) string {
+	for _, key := range []string{"deployment", "app"} {
+		if val := strings.TrimSpace(labels[key]); val != "" {
+			return val
+		}
+	}
+	nsApp := strings.TrimPrefix(strings.TrimSpace(namespace), "app-")
+	if pod := strings.TrimSpace(labels["pod"]); pod != "" {
+		if nsApp != "" && strings.HasPrefix(pod, nsApp+"-") {
+			return nsApp
+		}
+		parts := strings.Split(pod, "-")
+		if len(parts) >= 2 {
+			return strings.Join(parts[:len(parts)-1], "-")
+		}
+		return pod
+	}
+	return nsApp
 }
 
 func parseInboundSignal(raw []byte) (source, summary, severity string, labels map[string]string) {
@@ -342,6 +633,7 @@ func (s *Server) queryBarnaclesLogs(ctx context.Context, namespace string) strin
 	if err != nil {
 		return "barnacles_query_build_error"
 	}
+	attachOutboundTraceHeaders(ctx, req)
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return "barnacles_unreachable_fallback"
@@ -364,6 +656,7 @@ func (s *Server) queryPrometheusSnapshot(ctx context.Context, namespace string) 
 	if err != nil {
 		return "prometheus_query_build_error"
 	}
+	attachOutboundTraceHeaders(ctx, req)
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return "prometheus_unreachable_fallback"
@@ -395,6 +688,7 @@ func (s *Server) queryK8sWarningEvents(ctx context.Context, namespace string) st
 	if s.cfg.K8sBearerToken != "" {
 		req.Header.Set("Authorization", "Bearer "+s.cfg.K8sBearerToken)
 	}
+	attachOutboundTraceHeaders(ctx, req)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -481,6 +775,7 @@ func (s *Server) synthesizeRCAViaVLLM(ctx context.Context, source, summary, seve
 		return "RCA fallback: request creation error"
 	}
 	req.Header.Set("Content-Type", "application/json")
+	attachOutboundTraceHeaders(ctx, req)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -529,6 +824,9 @@ func RenderIncidentMarkdown(rep IncidentReport) string {
 	fmt.Fprintf(&b, "# Incident Report: [%s] %s\n\n", incCode, rep.Summary)
 	fmt.Fprintf(&b, "- **Date:** %s\n", dateStr)
 	fmt.Fprintf(&b, "- **Incident ID:** `%s`\n", rep.ID)
+	if rep.TraceID != "" {
+		fmt.Fprintf(&b, "- **W3C Trace ID:** `%s`\n", rep.TraceID)
+	}
 	fmt.Fprintf(&b, "- **Detection Source:** `%s`\n", rep.Source)
 	fmt.Fprintf(&b, "- **Target Namespace:** `%s`\n", ns)
 	fmt.Fprintf(&b, "- **Automated Responder:** `%s` (`%s`)\n", rep.AnalyzedByPod, rep.TemplateFormat)
@@ -580,6 +878,12 @@ func RenderIncidentMarkdown(rep IncidentReport) string {
 	b.WriteString("\n\n---\n\n")
 
 	b.WriteString("## 5. Remediation & Recovery Validation\n")
+	if rep.Remediation != nil {
+		fmt.Fprintf(&b, "- **Automated Runbook Action:** `%s` (`%s`)\n", rep.Remediation.Action, rep.Remediation.Mode)
+		fmt.Fprintf(&b, "- **Target Resource:** `%s`\n", rep.Remediation.Target)
+		fmt.Fprintf(&b, "- **Execution Status:** `%s` (`%s` at `%s`)\n\n",
+			rep.Remediation.Status, rep.Remediation.K8sResponse, rep.Remediation.ExecutedAt.UTC().Format(time.RFC3339))
+	}
 	b.WriteString("```bash\n")
 	fmt.Fprintf(&b, "# Inspect affected resources and events in namespace %q\n", ns)
 	fmt.Fprintf(&b, "kubectl get pods,svc,ep,netpol -n %s -o wide\n", ns)
@@ -619,6 +923,10 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	buf.WriteString("# TYPE sre_copilot_markdown_exports_total counter\n")
 	fmt.Fprintf(&buf, "sre_copilot_markdown_exports_total{namespace=%q,pod=%q} %s\n",
 		s.cfg.PodNamespace, s.cfg.PodName, strconv.FormatUint(s.markdownExports.Load(), 10))
+	buf.WriteString("# HELP sre_copilot_remediations_total Total guarded Kubernetes remediation actions executed.\n")
+	buf.WriteString("# TYPE sre_copilot_remediations_total counter\n")
+	fmt.Fprintf(&buf, "sre_copilot_remediations_total{namespace=%q,pod=%q} %s\n",
+		s.cfg.PodNamespace, s.cfg.PodName, strconv.FormatUint(s.remediationsExecuted.Load(), 10))
 	_, _ = w.Write([]byte(buf.String()))
 }
 
